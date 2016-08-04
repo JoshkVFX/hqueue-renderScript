@@ -276,17 +276,6 @@ class nukeWindow(nukescripts.PythonPanel):
 		nukescripts.PythonPanel.__init__(self, "hQueue Nuke render submission panel")
 		### Gets the absolute file path for the currently open Nuke script, if nothing open then defaults to install directory
 		self.absoluteFilePath = os.path.abspath(nuke.value("root.name"))
-		### Get the filepath from self.absoluteFilePath and put it into a text box
-		self.filePath = nuke.String_Knob('filePath', 'File Path: ', self.absoluteFilePath)
-		self.addKnob(self.filePath)
-		### Create a button that will test the file path for an nuke script
-		self.filePathCheck = nuke.PyScript_Knob("filePathCheck", "Test the File Path", "")
-        self.addKnob(self.filePathCheck)
-        ### Create pathSuccessFlag flag that is hidden until the file path is verified
-		self.pathSuccessFlag = nuke.Text_Knob('pathSuccessFlag', '', '<span style="color:green">Connection Successful</span>')
-		self.pathSuccessFlag.setFlag(nuke.STARTLINE)
-        self.pathSuccessFlag.setVisible(False)
-        self.addKnob(self.pathSuccessFlag)
 		### Setup a text box for the server address to be input into
 		self.serverAddress = nuke.String_Knob('serverAddress', 'Server Address: ')
 		self.addKnob(self.serverAddress)
@@ -298,6 +287,17 @@ class nukeWindow(nukescripts.PythonPanel):
 		self.addressSuccessFlag.setFlag(nuke.STARTLINE)
         self.addressSuccessFlag.setVisible(False)
         self.addKnob(self.addressSuccessFlag)
+		### Get the filepath from self.absoluteFilePath and put it into a text box
+		self.filePath = nuke.String_Knob('filePath', 'File Path: ', self.absoluteFilePath)
+		self.addKnob(self.filePath)
+		### Create a button that will test the file path for an nuke script
+		self.filePathCheck = nuke.PyScript_Knob("filePathCheck", "Test the File Path", "")
+        self.addKnob(self.filePathCheck)
+        ### Create pathSuccessFlag flag that is hidden until the file path is verified
+		self.pathSuccessFlag = nuke.Text_Knob('pathSuccessFlag', '', '<span style="color:green">Connection Successful</span>')
+		self.pathSuccessFlag.setFlag(nuke.STARTLINE)
+        self.pathSuccessFlag.setVisible(False)
+        self.addKnob(self.pathSuccessFlag)
 		### Setup the get client list button, which will use hqrop functions
 		self.clientGet = nuke.PyScript_Knob("clientGet", "Get client list", "")
 		self.addKnob(self.clientGet)
@@ -325,15 +325,13 @@ class nukeWindow(nukescripts.PythonPanel):
 		self.response = ""
 		### Figure out which knob was changed
 		if knob is self.filePathCheck:
-			### Get a response from the function of the button that was pressed
-			self.response = self.serverRop.expandHQROOT(self.filePath.value(), self.serverAddress.value())
-			print(self.response)
 			### See if the file path has $HQROOT in it
 			if "$HQROOT" in self.filePath.value():
+				### Get a response from the function of the button that was pressed
+				self.cleanPath = self.serverRop.expandHQROOT(self.filePath.value(), self.serverAddress.value())
+				self.response = self.filePath.value()
 				### Clean the file path before checking it exists
-				self.cleanFilePath = self.filePath.value().replace("$HQROOT", self.response)
-				print(self.cleanFilePath)
-				if os.path.isfile(self.cleanFilePath):
+				if os.path.isfile(self.response):
 					### Set the value of pathSuccessFlag to green text Connection Successful 
 					self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
 				else:
@@ -341,7 +339,9 @@ class nukeWindow(nukescripts.PythonPanel):
 					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
 				### Set the address success text flag to visible
 				self.pathSuccessFlag.setVisible(True)
-			else:
+			elif self.serverRop.getHQROOT(self.serverAddress.value()) in self.filePath.value():
+				self.hqroot = self.serverRop.getHQROOT(self.serverAddress.value())
+				self.response = self.filePath.value().replace(self.hqroot, "$HQROOT")
 				### Check whether file exists
 				if os.path.isfile(self.filePath.value()):
 					### Set the value of pathSuccessFlag to green text Connection Successful 
@@ -349,6 +349,18 @@ class nukeWindow(nukescripts.PythonPanel):
 				else:
 					### Set the value of pathSuccessFlag to green text Connection failed
 					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
+			else:
+				### Check whether file exists
+				if os.path.isfile(self.filePath.value()):
+					### Set the value of pathSuccessFlag to green text Connection Successful 
+					self.pathSuccessFlag.setValue('<span style="color:green">File found but not in shared folder, might not work for all OS</span>')
+				else:
+					### Set the value of pathSuccessFlag to green text Connection failed
+					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
+			self.pathSuccessFlag.setVisible(True)
+			### Take the output of self.response and make it into a hqPath for submission to the server
+			self.hqPath = self.response
+			print(self.hqPath)
 		elif knob is self.addressTest:
 			### Get a response from the function of the button that was pressed
 			self.response = self.serverRop.doesHQServerExists(self.serverAddress.value())
