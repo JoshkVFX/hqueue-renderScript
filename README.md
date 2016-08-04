@@ -10,5 +10,8 @@ This was all I needed to hear and within a week I had a basic working version an
 Long story short the "fully fleshed out script" I wrote worked, but was terribly written. I've chosen to rewrite it from scratch instead of fixing the previous version. 
 I'm also improving it as I rewrite it, adding a GUI starting with Nuke then moving onto Maya then Pyqt for a standalone GUI. As I get more and more features rewritten I'll start writing how-to instructions but usage should be fairly straightforward.
 
+# Why am I rewritting it?
+The people at SideFX have made the Hqueue program very useful, if you're already using Houdini it's free and with a little bit of effort it can be set up to use any operating system as nodes. 
+
 # Links
 http://SideFX.com - This is SideFX's website, creators of Houdini, Houdini FX and the Hqueue render server program. 
