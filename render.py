@@ -358,9 +358,8 @@ class nukeWindow(nukescripts.PythonPanel):
 					### Set the value of pathSuccessFlag to green text Connection failed
 					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
 			self.pathSuccessFlag.setVisible(True)
-			### Take the output of self.response and make it into a hqPath for submission to the server
+			### Take the output of self.response and make it into a hqFilePath for submission to the server
 			self.hqFilePath = self.response
-			print(self.hqPath)
 		elif knob is self.addressTest:
 			### Get a response from the function of the button that was pressed
 			self.response = self.serverRop.doesHQServerExists(self.serverAddress.value())
