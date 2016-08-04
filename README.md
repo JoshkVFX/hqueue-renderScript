@@ -8,7 +8,7 @@ This was all I needed to hear and within a week I had a basic working version an
 
 # Where is it?
 Long story short the "fully fleshed out script" I wrote worked, but was terribly written. I've chosen to rewrite it from scratch instead of fixing the previous version. 
-I'm also improving it as I rewrite it, adding a GUI starting with Nuke then moving onto Maya then Pyqt for a standalone GUI. 
+I'm also improving it as I rewrite it, adding a GUI starting with Nuke then moving onto Maya then Pyqt for a standalone GUI. As I get more and more features rewritten I'll start writing how-to instructions but usage should be fairly straightforward.
 
 # Links
 http://SideFX.com - This is SideFX's website, creators of Houdini, Houdini FX and the Hqueue render server program. 
