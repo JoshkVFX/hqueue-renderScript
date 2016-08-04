@@ -39,6 +39,155 @@ class hqRop(object):
 		else:
 			self.submit_function(self.parms)
 
+	def getBaseParameters():
+		"""Return a dictionary of the base parameters used by all HQueue ROPs."""
+		parms = {
+			"name" : hou.ch("hq_job_name").strip(),
+			"assign_to" : hou.parm("hq_assign_to").evalAsString(),
+			"clients": hou.ch("hq_clients").strip(),
+			"client_groups" : hou.ch("hq_client_groups").strip(),
+			"dirs_to_create": getDirectoriesToCreate(hou.pwd(), expand=False),
+			"environment" : getEnvVariablesToSet(hou.pwd()),
+			"hfs": getUnexpandedStringParmVal(hou.parm("hq_hfs")),
+			"hq_server": hou.ch("hq_server").strip(),
+			"open_browser": hou.ch("hq_openbrowser"),
+			"priority": hou.ch("hq_priority"),
+			"hip_action": hou.ch("hq_hip_action"),
+			"autosave": hou.ch("hq_autosave"),
+			"warn_unsaved_changes": hou.ch("hq_warn_unsaved_changes"),
+			"report_submitted_job_id": hou.ch("hq_report_submitted_job_id"),
+		}
+    
+		addSubmittedByParm(parms)
+
+		# Get the .hip file path.
+		if parms["hip_action"] == "use_current_hip":
+		    parms["hip_file"] = hou.hipFile.path()
+		elif parms["hip_action"] == "use_target_hip":
+		    parms["hip_file"] = getUnexpandedStringParmVal(hou.parm("hq_hip"))
+		elif parms["hip_action"] == "copy_to_shared_folder": 
+			# Get the target project directory from the project path parameter.
+			# We need to resolve $HQROOT if it exists in the parameter value.
+			# To do that, we temporarily set $HQROOT, evaluate the parameter,
+			# and then unset $HQROOT.
+			old_hq_root = hou.hscript("echo $HQROOT")[0].strip()
+			hq_root = expandHQROOT("$HQROOT", parms["hq_server"])
+			hou.hscript("set HQROOT=%s" % hq_root)
+			target_dir = hou.parm("hq_project_path").eval().strip()
+			if old_hq_root != "":
+				hou.hscript("set HQROOT=%s" % old_hq_root)
+			else:
+				hou.hscript("set -u HQROOT")
+			if target_dir[-1] != "/":
+				target_dir = target_dir + "/"
+
+			# Set the target .hip file path.
+			parms["hip_file"] = target_dir + os.path.basename(hou.hipFile.name())
+
+			# When copying to the shared folder,
+			# we always create a new .hip file.
+			parms["hip_file"] = _getNewHipFilePath(parms["hip_file"])
+		else:
+			pass
+
+		# Setup email parameters
+		if hou.ch("hq_will_email"):
+			# We remove the whitespace around each email entry
+			parms["emailTo"] = ",".join([email.strip() for email in 
+										 hou.ch("hq_emailTo").split(',')])
+
+			# The values added to parms for why emails should be sent are 
+			# place holders.
+			# When jobSend is ran they are updated as we need a server connection
+			# to add the values we want.
+			email_reasons = []
+
+			if hou.ch("hq_email_on_start"):
+				email_reasons.append("start")
+
+			if hou.ch("hq_email_on_success"):
+				email_reasons.append("success")
+
+			if hou.ch("hq_email_on_failure"):
+				email_reasons.append("failure")
+
+			if hou.ch("hq_email_on_pause"):
+				email_reasons.append("pause")
+
+			if hou.ch("hq_email_on_resume"):
+				email_reasons.append("resume")
+
+			if hou.ch("hq_email_on_reschedule"):
+				email_reasons.append("reschedule")
+
+			if hou.ch("hq_email_on_priority_change"):
+				email_reasons.append("priority change")
+
+		parms["emailReasons"] = email_reasons
+		else:
+			parms["emailTo"] = ""
+			# An empty list for emailReasons means no email will be sent
+			parms["emailReasons"] = []
+
+
+		return parms
+
+	def addSubmittedByParm(parms):
+		"""Adds who submits the job to the base parameters."""
+		try:
+			parms["submittedBy"] = getpass.getuser()
+		except (ImportError, KeyError):
+			pass
+
+	def setupEmailReasons(server_connection, job_spec):
+		"""Changes the placeholder string in the emailReasons part of the job
+		spec with the actual string that will be sent.
+		Gives a warning message if any of the options do not exist on the 
+		server side.
+		"""
+		placeholder_reasons = job_spec["emailReasons"]
+		new_reasons = []
+		failure_messages = []
+
+
+		for reason in placeholder_reasons:
+			try:
+				if reason == "start":
+					new_reasons.extend(
+						server_connection.getStartedJobEventNames())
+				elif reason == "success":
+					new_reasons.extend(server_connection.getSucceededStatusNames())
+				elif reason == "failure":
+					new_reasons.extend(server_connection.getFailedJobStatusNames())
+				elif reason == "pause":
+					new_reasons.extend(server_connection.getPausedJobStatusNames())
+				elif reason == "resume":
+					new_reasons.extend(server_connection.getResumedEventNames())
+				elif reason == "reschedule":
+					new_reasons.extend(
+					server_connection.getRescheduledEventNames())
+				elif reason == "priority change":
+					new_reasons.extend(
+					server_connection.getPriorityChangedEventNames())
+				else:
+					raise Exception("Did not recieve valid placeholder reason " + 
+									reason + ".")
+			except xmlrpclib.Fault:
+				failure_messages.append(string.capwords(reason))
+
+
+		if failure_messages:
+			if hou.isUIAvailable():
+				base_failure_message = ("The server does not support sending "
+				+ "email for the following reasons:")
+				failure_message = "\n".join(failure_messages)
+				failure_message = "\n".join([base_failure_message, failure_message])
+				hou.ui.displayMessage(failure_message, 
+									  severity = hou.severityType.Warning) 
+
+
+		job_spec["emailReasons"] = ",".join(new_reasons)
+
 	def expandHQROOT(self, path, hq_server):
 		"""Return the given file path with instances of $HQROOT expanded
 		out to the mount point for the HQueue shared folder root."""
@@ -78,6 +227,95 @@ class hqRop(object):
 			return None
 		
 		return self.hq_root
+
+	def buildContainingJobSpec(job_name, hq_cmds, parms, child_job,
+							   apply_conditions_to_children=True):
+		"""Return a job spec that submits the child job and waits for it.
+		The job containing the child job will not run any command.
+		"""
+		job = {
+			"name": job_name,
+			"priority": child_job["priority"],
+			"environment": {"HQCOMMANDS": hutil.json.utf8Dumps(hq_cmds)},
+			"command": "",
+			"children": [child_job],
+			"emailTo": parms["emailTo"],
+			"emailReasons": parms["emailReasons"],
+		}
+
+		if "submittedBy" in parms:
+			job["submittedBy"] = parms["submittedBy"]
+
+		# Add job assignment conditions if any.
+		conditions = { "clients":"host", "client_groups":"hostgroup" }
+		for cond_type in conditions.keys():
+			job_cond_keyword = conditions[cond_type]
+			if parms["assign_to"] == cond_type:
+				job[job_cond_keyword] = parms[cond_type]
+				if apply_conditions_to_children:
+					for child_job in job["children"]:
+						child_job[job_cond_keyword] = parms[cond_type]
+
+		return job
+
+
+	def getHQueueCommands(remote_hfs, num_cpus=0):
+		"""Return the dictionary of commands to start hython, Python, and mantra.
+		Return None if an error occurs when reading the commands
+		from the HQueueCommands file.
+		If `num_cpus` is greater than 0, then we add a -j option
+		to each command so that the application is run with a maximum
+		number of threads.
+		"""
+	
+		self.hq_cmds = {}
+		self.cmd_file = open(cmd_file_path, "r")
+		self.cmd_name = None
+		self.cmds = None
+		self.continue_cmd = False
+		for line in self.cmd_file:
+			line = line.strip()
+	
+			# Check if we need to continue the current command.
+			if self.continue_cmd:
+				# Add line to current command.
+				self.cmds = self.addLineToCommands(cmds, line)
+				if line[-1] == "\\":
+					self.continue_cmd = True
+				else:
+					self.cmds = self.finalizeCommands(cmd_name, cmds, remote_hfs, num_cpus)
+					if self.cmds is None:
+						return None
+					self.hq_cmds[cmd_name] = self.cmds
+					self.continue_cmd = False
+				continue
+	
+			# Ignore comments and empty lines.
+			if line.startswith("#") or line.strip() == "":
+				continue
+	
+			# Ignore lines with no command assignment.
+			eq_op_loc = line.find("=")
+			if eq_op_loc < 0:
+				continue
+	
+			# Start a new command.
+			cmd_name = line[0:eq_op_loc].strip()
+			cmds = None
+			line = line[eq_op_loc+1:]
+	
+			# Add line to current command.
+			cmds = addLineToCommands(cmds, line)
+			if line[-1] == "\\":
+				continue_cmd = True
+			else:
+				cmds = _finalizeCommands(cmd_name, cmds, remote_hfs, num_cpus)
+				if cmds is None:
+					return None
+				hq_cmds[cmd_name] = cmds
+				continue_cmd = False
+	
+		return hq_cmds
 
 	def getHQueueCommands(remote_hfs, num_cpus=0):
 		"""Return the dictionary of commands to start hython, Python, and mantra.
@@ -142,7 +380,7 @@ class hqRop(object):
 		return hq_cmds
 
 
-	def _addLineToCommands(cmds, line):
+	def addLineToCommands(cmds, line):
 		"""Adds the given line to the command string.
 		This is a helper function for getHQueueCommands.
 		"""
@@ -158,7 +396,7 @@ class hqRop(object):
 		return cmds
 
 
-	def _finalizeCommands(cmd_name, cmds, remote_hfs, num_cpus):
+	def finalizeCommands(cmd_name, cmds, remote_hfs, num_cpus):
 		"""Perform final touches to the given commands.
 		This is a helper function for getHQueueCommands.
 		"""
@@ -182,13 +420,52 @@ class hqRop(object):
 			or (cmds[0] == "'" and cmds[-1] == "'"):
 			cmds = cmds[1:]
 			cmds = cmds[0:-1]
-	
+
 		# Add the -j option to hython and Mantra commands.
 		if num_cpus > 0 and (
 			cmd_name.startswith("hython") or cmd_name.startswith("mantra")):
 			cmds += " -j" + str(num_cpus)
-	
+
 		return cmds
+
+	def sendJob(hq_server, main_job, open_browser, report_submitted_job_id):
+		"""Send the given job to the HQ server.
+		If the ui is available, either display the HQ web interface or display the
+		id of the submitted job depending on the value of `open_browser` and 
+		'report_submitted_job_id'.
+		"""
+		import hou
+		s = _connectToHQServer(hq_server)
+		if s is None:
+			return False
+
+		# We do this here as we need a server connection
+		setupEmailReasons(s, main_job)
+
+		# If we're running as an HQueue job, make that job our parent job.
+		try:
+			ids = s.newjob(main_job, os.environ.get("JOBID"))
+		except Exception, e:
+			displayError("Could not submit job to '" + hq_server + "'.", e)
+			return False
+       
+		# Don't open a browser window or try to display a popup message if we're
+		# running from Houdini Batch.
+		if not hou.isUIAvailable():
+			return True
+
+		jobId = ids[0]
+		if not open_browser and report_submitted_job_id:
+			buttonindex = hou.ui.displayMessage("Your job has been submitted (Job %i)." % jobId, buttons=("Open HQueue", "Ok"), default_choice=1 )
+
+		if buttonindex == 0:
+			open_browser = True
+
+		if open_browser:
+			url = "%(hq_server)s" % locals()
+			webbrowser.open(url)
+
+		return True
 
 	def hqServerProxySetup(self, hq_server):
 		"""Sets up a xmlrpclib server proxy to the given HQ server."""
@@ -285,19 +562,19 @@ class nukeWindow(nukescripts.PythonPanel):
 		### Create addressSuccessFlag flag that is hidden until the server is successfully pinged
 		self.addressSuccessFlag = nuke.Text_Knob('addressSuccessFlag', '', '<span style="color:green">Connection Successful</span>')
 		self.addressSuccessFlag.setFlag(nuke.STARTLINE)
-        self.addressSuccessFlag.setVisible(False)
-        self.addKnob(self.addressSuccessFlag)
+		self.addressSuccessFlag.setVisible(False)
+		self.addKnob(self.addressSuccessFlag)
 		### Get the filepath from self.absoluteFilePath and put it into a text box
 		self.filePath = nuke.String_Knob('filePath', 'File Path: ', self.absoluteFilePath)
 		self.addKnob(self.filePath)
 		### Create a button that will test the file path for an nuke script
 		self.filePathCheck = nuke.PyScript_Knob("filePathCheck", "Test the File Path", "")
-        self.addKnob(self.filePathCheck)
-        ### Create pathSuccessFlag flag that is hidden until the file path is verified
+		self.addKnob(self.filePathCheck)
+		### Create pathSuccessFlag flag that is hidden until the file path is verified
 		self.pathSuccessFlag = nuke.Text_Knob('pathSuccessFlag', '', '<span style="color:green">Connection Successful</span>')
 		self.pathSuccessFlag.setFlag(nuke.STARTLINE)
-        self.pathSuccessFlag.setVisible(False)
-        self.addKnob(self.pathSuccessFlag)
+		self.pathSuccessFlag.setVisible(False)
+		self.addKnob(self.pathSuccessFlag)
 		### Setup the get client list button, which will use hqrop functions
 		self.clientGet = nuke.PyScript_Knob("clientGet", "Get client list", "")
 		self.addKnob(self.clientGet)
