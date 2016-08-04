@@ -359,7 +359,7 @@ class nukeWindow(nukescripts.PythonPanel):
 					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
 			self.pathSuccessFlag.setVisible(True)
 			### Take the output of self.response and make it into a hqPath for submission to the server
-			self.hqPath = self.response
+			self.hqFilePath = self.response
 			print(self.hqPath)
 		elif knob is self.addressTest:
 			### Get a response from the function of the button that was pressed
