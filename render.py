@@ -1,285 +1,426 @@
-#These are just the imports for the neccessary components so this script can run
+### Import needed modules and components
 import os
+import os.path
 import sys
-import time
-import math
-import random
 import xmlrpclib
 
-#This sets the server connection as a variable that can be called anytime
-hq_server = xmlrpclib.ServerProxy("http://adlcgi-000941:5000")
+### Window setup
+class programCheck:
+	
+	### Initiate the job class by first building the window
+	def __init__(self):
+		self.gui = self.check()
+	
+	def check(self):
+		### Try and initiate in a Nuke window or a Maya window and error if neither are found.
+		try:
+			import nuke
+			import nukescripts
+			return(nukeWindow)
+		except:
+			try:
+				import maya.cmds as cmds
+				return(mayaWindow)
+			except:
+				### Normally I'd run a raise RuntimeError but it's hard for non-programmers to debug so I'll print an error first then raise RuntimeError.
+				print("No supported window manager available(Nuke, Maya)\n")
+				raise RuntimeError("No supported window manager available(Nuke, Maya)\n")
 
-#This checks if the server is accepting remote connections
-try:
-	hq_server.ping()
-	Hqueue = "up"
-except:
-	Hqueue = "down"
-print "HQueue Server is " + Hqueue + "\n"
+class hqRop(object):
 
-#This is the main script
-if Hqueue == "down":
-	pass
-else:
-	#This is where the main variables are set, these are very sensitive so I don't recommend changing them
-	file = raw_input("What is the files name?\n")
-
-	if "sgtSpaghetti" in file:
-		command = raw_input("What is the command?\n")
-		compNum = raw_input("How many computers should this run on?\n")
-		jobNum = 1
-		while jobNum <= int(compNum):
-		#This is where the HQueue job is compiled
-			job_spec = {
-				"name" : "Spaghetti command",
-				"command": command,
-				"tags": [ "sgtSpaghetti" ],
-				"maxHosts": 1,
-				"minHosts": 1,
-			}
-			job_ids = hq_server.newjob(job_spec)
-			status = "Command" + " " + str(jobNum) + " " + "successfully submitted.\n"
-			print status
-			jobNum += 1
-		sys.exit()
-	else:
-		pass
-
-	program = raw_input("What program are you rendering in?\n")
-	fileLocation = raw_input("What folder is the file located in?\n")
-	fileLoc = fileLocation + "/"
-	fileLocation = fileLocation[:-7]
-	group = raw_input("What computers should this run on?(If all leave blank, if some computers write some, if you want to exclude any computers type their names)\n")
-	group = group.lower()
-	groupGroup = group
-
-	if groupGroup == "":
-		groupType = "hostname"
-		groupOp = "!="
-	elif groupGroup == "some":
-		while group == "some":
-			groupGroup = raw_input("Computers or Groups\n")
-			groupGroup = groupGroup.lower()
-			if groupGroup == "computers":
-				groupType = "hostname"
-				groupOp = "any"
-				group = raw_input("Which computers\n")
-				group = group.upper()
-			elif groupGroup == "groups":
-				groupType = "group"
-				groupOp = "=="
-				group = raw_input("Which groups?\n")
-			else:
-				print "Incorrect Spelling"
-	else:
-		groupType = "hostname"
-		groupOp = "!="
-		group = group.upper()
-
-	if program == "maya":
-		renderThreads = int(raw_input("How many render threads?\n"))
-		renderer = raw_input("What renderer?\n")
-
-		if "enta" in renderer:
-			renderer = "mentalRay"
-		elif "rnol" in renderer:
-			renderer = "arnold"
+	### This chunk of code is lifted from hqrop.py and rewritten as neccessary #######################################################################
+	def submitJob(parms, submit_function):
+		"""Submits a job with the given parameters and function after checking to
+		see if the project files need to be copied or not.
+		submit_function will be passed parms
+		"""
+		if self.parms["hip_action"] == "copy_to_shared_folder":
+			self.copyToSharedFolder(parms, submit_function)
 		else:
-			renderer = ""
-			print "Renderer not defined, defaulting to scene file (May or may not work)"
+			self.submit_function(self.parms)
 
-	else:
-		pass
+	def expandHQROOT(self, path, hq_server):
+		"""Return the given file path with instances of $HQROOT expanded
+		out to the mount point for the HQueue shared folder root."""
+		# Get the HQueue root path.
+		self.hq_root = self.getHQROOT(hq_server)
+		if self.hq_root is None:
+			return path
+	
+		expanded_path = path.replace("$HQROOT", self.hq_root)
+		return expanded_path
 
-	computers = int(raw_input("How many computers are you rendering on?\n"))
-	frameStart = raw_input("What is the starting frame?\n")
-	frameEnd = raw_input("What is the ending frame?\n")
-	frameRange = frameStart + "-" + frameEnd
-	frameAll = int(frameEnd) - (int(frameStart) - 1)
-	renderStart = int(frameStart)
-	renderRange = float(frameAll) / float(computers)
-	renderRange = (math.ceil(renderRange))
-	renderRange = str(renderRange)[:-2]
-	renderRange = int(renderRange)
-	renderEnd = (int(frameStart) + int(renderRange)) -1
-	frameNum = renderStart
-	compLen = len(str(computers))
-	jobNum = 1
-	jobNum = format(jobNum, str(compLen))
-	jobNum = int(jobNum)
 
-	if program == "maya":
-		new = raw_input("Do you want to render batches, sequentially or using tiles?\n")
-	else:
-		new = raw_input("Do you want to render batches or sequentially\n")
+	def getHQROOT(self, hq_server):
+		"""Query the HQueue server and return the mount point path 
+		to the HQueue shared folder root.
+		Return None if the path cannot be retrieved from the server.
+		"""
+		# Identify this machine's platform.
+		platform = sys.platform
+		if platform.startswith("win"):
+			platform = "windows"
+		elif platform.startswith("linux"):
+			platform = "linux"
+		elif platform.startswith("darwin"):
+			platform = "macosx"
+		
+		# Connect to the HQueue server.
+		s = self.hQServerConnect(hq_server)
+		if s is None:
+			return None
+		
+		try:
+			# Get the HQ root.
+			self.hq_root = s.getHQRoot(platform)
+		except:
+			print("Could not retrieve $HQROOT from '" + hq_server + "'.")
+			return None
+		
+		return self.hq_root
 
-	if "tile" in new:
-			tileNum = int(raw_input("How many tiles?\n"))
-			renderWidth = raw_input("What is the width of the image\n")
-			renderHeight = raw_input("What is the height of the image\n")
-			renderTileNum = 1
-			renderWidthTileNum = 1
-			renderHeightTileNum = 1
-	waitRandom = "ping 127.0.0.1 -n" + " " + str(random.randrange(0,120)) + " " + "> nul"
-	user = raw_input("Who are you?\n")
-
-	def submitJob(job_spec, jobNum):
-		#This sends the HQueue Job to the HQueue Server to run your render
-		job_ids = hq_server.newjob(job_spec)
-		print "Job" + " " + str(jobNum) + "/" + str(computers) + " " + "successfully submitted.\n"
-
-	#This is the main beast that evaluates all the inputs and formulates commands for rendering on clients
-	if "bat" in new:
-		#This checks if the frame range for the render command is below the final frame
-		while int(renderStart) <= int(frameEnd):
-
-			if renderEnd <= int(frameEnd):
-				pass
-			else:
-				frameDif = abs(renderEnd - int(frameEnd))
-				renderEnd = renderEnd - frameDif
-
-			#This checks what program is rendering then compiles the command for the clients to run
-			if program == "nuke":
-				programline = waitRandom + " " + "&&" + " " + "C: && cd C:\Program Files\Nuke9.0v6 && Nuke9.0 -ix "
-				programExt = ".nk"
-				command = programline + "-F " + str(renderStart) + "-" + str(renderEnd) + " " + fileLoc + file + programExt
-			elif program == "maya":
-				programline = waitRandom + " " + "&&" + " " + "C: && set path=%PATH%;C:\Program Files\Autodesk\Maya2015\\bin; && render "
-				programExt = ".mb"
-				renderLength = "-s " + str(renderStart) + " " + "-e " + str(renderEnd) + " "
-				if "mentalRay" in renderer:
-					rendererSettings = "-mr:rt" + " " + str(renderThreads) + " " + "-mr:v 5" + " "
-				elif "arnold" in renderer:
-					rendererSettings = "-r arnold" + " "
+	def getHQueueCommands(remote_hfs, num_cpus=0):
+		"""Return the dictionary of commands to start hython, Python, and mantra.
+		Return None if an error occurs when reading the commands
+		from the HQueueCommands file.
+		If `num_cpus` is greater than 0, then we add a -j option
+		to each command so that the application is run with a maximum
+		number of threads.
+		"""
+		import hou
+		# HQueueCommands will exist in the Houdini path.
+		cmd_file_path = hou.findFile(
+			"soho/python%d.%d/HQueueCommands" % sys.version_info[:2])
+	
+		hq_cmds = {}
+		cmd_file = open(cmd_file_path, "r")
+		cmd_name = None
+		cmds = None
+		continue_cmd = False
+		for line in cmd_file:
+			line = line.strip()
+	
+			# Check if we need to continue the current command.
+			if continue_cmd:
+				# Add line to current command.
+				cmds = _addLineToCommands(cmds, line)
+				if line[-1] == "\\":
+					continue_cmd = True
 				else:
-					renderSettings = ""
-				command = programline + renderLength + rendererSettings + "-proj" + " " + fileLocation + " " + fileLoc + file + programExt
+					cmds = _finalizeCommands(cmd_name, cmds, remote_hfs, num_cpus)
+					if cmds is None:
+						return None
+					hq_cmds[cmd_name] = cmds
+					continue_cmd = False
+				continue
+	
+			# Ignore comments and empty lines.
+			if line.startswith("#") or line.strip() == "":
+				continue
+	
+			# Ignore lines with no command assignment.
+			eq_op_loc = line.find("=")
+			if eq_op_loc < 0:
+				continue
+	
+			# Start a new command.
+			cmd_name = line[0:eq_op_loc].strip()
+			cmds = None
+			line = line[eq_op_loc+1:]
+	
+			# Add line to current command.
+			cmds = _addLineToCommands(cmds, line)
+			if line[-1] == "\\":
+				continue_cmd = True
 			else:
-				print "Error: unsupported program"
+				cmds = _finalizeCommands(cmd_name, cmds, remote_hfs, num_cpus)
+				if cmds is None:
+					return None
+				hq_cmds[cmd_name] = cmds
+				continue_cmd = False
+	
+		return hq_cmds
 
-			#This is where the HQueue job is compiled
-			job_spec = {
-				"name" : file + " " + str(renderStart) + "-" + str(renderEnd),
-				"command": command,
-				"tags": [ "single" ],
-				"maxHosts": 1,
-				"minHosts": 1,
-				"submittedBy": user,
-				"conditions": [
-					{ "type" : "client", "name":groupType, "op":groupOp, "value":group },
-				]
-			}
+
+	def _addLineToCommands(cmds, line):
+		"""Adds the given line to the command string.
+		This is a helper function for getHQueueCommands.
+		"""
+		line = line.strip()
+		if line[-1] == "\\":
+			line = line[:-1].strip()
+	
+		if cmds is None:
+			cmds = line
+		else:
+			cmds = cmds + " " + line
+	
+		return cmds
+
+
+	def _finalizeCommands(cmd_name, cmds, remote_hfs, num_cpus):
+		"""Perform final touches to the given commands.
+		This is a helper function for getHQueueCommands.
+		"""
+		if cmd_name.endswith("Windows"):
+			remote_hfs = hutil.file.convertToWinPath(remote_hfs, var_notation="!")
+	
+		# Replace HFS instances.
+		cmds = cmds.replace("%(HFS)s", remote_hfs)
+	
+		# Attempt to replace other variable instances with
+		# environment variables.
+		try:
+			cmds = cmds % os.environ
+		except KeyError, e:
+			print("Use of undefined variable in " + cmd_name + ".", e)
+			return None
+	
+		# Strip out wrapper quotes, if any.
+		# TODO: Is this needed still?
+		if (cmds[0] == "\"" and cmds[-1] == "\"") \
+			or (cmds[0] == "'" and cmds[-1] == "'"):
+			cmds = cmds[1:]
+			cmds = cmds[0:-1]
+	
+		# Add the -j option to hython and Mantra commands.
+		if num_cpus > 0 and (
+			cmd_name.startswith("hython") or cmd_name.startswith("mantra")):
+			cmds += " -j" + str(num_cpus)
+	
+		return cmds
+
+	def hqServerProxySetup(self, hq_server):
+		"""Sets up a xmlrpclib server proxy to the given HQ server."""
+		if not hq_server.startswith("http://"):
+			full_hq_server_path = "http://%s" % hq_server
+		else:
+			full_hq_server_path = hq_server
+
+		return xmlrpclib.ServerProxy(full_hq_server_path, allow_none=True)
+
+	def doesHQServerExists(self, hq_server):
+		"""Check that the given HQ server can be connected to.
+		Returns True if the server exists and False if it does not. Furthermore,
+		it will display an error message if it does not exists."""
+		server = self.hqServerProxySetup(hq_server)
+		return self.hQServerPing(server, hq_server)
+
+	def hQServerConnect(self, hq_server):
+		"""Connect to the HQueue server and return the proxy connection."""
+		s = self.hqServerProxySetup(hq_server)
+
+		if self.hQServerPing(s, hq_server):
+			return s
+		else:
+			return None
+
+	def hQServerPing(self, server, hq_server):
+		try:
+			server.ping()
+			return True
+		except:
+			print("Could not connect to '" + hq_server + "'.\n\n"
+				+ "Make sure that the HQueue server is running\n"
+				+ "or change the value of 'HQueue Server'.",
+				TypeError("this is a type error"))
+
+			return False
+
+	def getClients(self, hq_server):
+		"""Return a list of all the clients registered on the HQueue server.
+		Return None if the client list could not be retrieved from the server.
+		"""
+		s = self.hQServerConnect(hq_server)
+
+		if s is None:
+			return None
+
+		try:
+			self.client_ids = None
+			self.attribs = ["id", "hostname"]
+			self.clients = s.getClients(self.client_ids, self.attribs)
+		except:
+			print("Could not retrieve client list from '" + hq_server + "'.")
+			return None
 			
-			#Calling the function to submit a job
-			submitJob(job_spec, jobNum)
+		return [self.client["hostname"] for self.client in self.clients]
 
-			#This checks if this is the last frame of the sequence and if it is adds a frame
-			renderStart += renderRange
-			renderEnd += renderRange
-			jobNum += 1
-	elif "tile" in new:
-		#This checks if the frame range for the render command is below the final frame
-		while int(frameNum) <= int(frameEnd):
+	def getClientGroups(self, hq_server):
+		"""Return a list of all the client groups on the HQueue server.
+		Return None if the client group list could not be retrieved from the server.
+		"""
+		s = self.hQServerConnect(hq_server)
+		if s is None:
+			return None
 
-			if renderEnd <= int(frameEnd):
-				pass
-			else:
-				frameDif = abs(renderEnd - int(frameEnd))
-				renderEnd = renderEnd - frameDif
-			programline = waitRandom + " " + "&&" + " " + "C: && set path=%PATH%;C:\Program Files\Autodesk\Maya2015\\bin; && render "
-			programExt = ".mb"
-			renderLength = "-s " + str(frameNum) + " " + "-e " + str(frameNum) + " "
-			if "mentalRay" in renderer:
-				rendererSettings = "-mr:rt" + " " + str(renderThreads) + " " + "-mr:v 5" + " "
-			elif "arnold" in renderer:
-				rendererSettings = "-r arnold" + " "
-			else:
-				renderSettings = ""
-			if renderTileNum <= tileNum:
-				mayaTileRender = "-x" + " " + str(renderWidth) + " " + "-y" + " " + str(renderHeight) + " " + "-mr:reg" + " " + str(((int(renderWidth) / (int(tileNum)/2)) * (int(renderWidthTileNum) - 1))) + " " + str(((int(renderWidth) / (int(tileNum)/2)) * int(renderWidthTileNum))) + " " + str(((int(renderHeight) / (int(tileNum)/4)) * (int(renderHeightTileNum) - 1))) + " " + str(((int(renderHeight) / (int(tileNum)/4)) * int(renderHeightTileNum))) + " "
-			else:
-				pass
-			command = programline + renderLength + renderSettings + mayaTileRender + "-im" + " " + str(frameNum) + "-" + "part" + str(renderTileNum) + " " + "-proj " + fileLocation + " " + fileLoc + file + programExt
+		try:
+			self.client_groups = s.getClientGroups()
+		except:
+			print("Could not retrieve client group list from '" 
+						+ hq_server + "'.")
+			return None
+	
+		return self.client_groups
 
-			#This is where the HQueue job is compiled
-			job_spec = {
-				"name" : file + " " + "tile" + str(renderTileNum) + "Frame" + str(frameNum),
-				"command": command,
-				"tags": [ "single" ],
-				"maxHosts": 1,
-				"minHosts": 1,
-				"submittedBy": user,
-				"conditions": [
-					{ "type" : "client", "name":groupType, "op":groupOp, "value":group },
-				]
-			}
+	##################################################################################################################################################
 
-			#Calling the function to submit a job
-			submitJob(job_spec, jobNum)
+### Run to open a window in Nuke
+class nukeWindow(nukescripts.PythonPanel):
+	
+	### Initialise the hqRop to be callable
+	serverRop = hqRop()
 
-			#This checks if this is the last frame of the tile sequence and if it is adds a frame
-			if frameNum <= renderEnd:
-				if renderTileNum < tileNum:
-					renderTileNum += 1
-					if renderTileNum <> ((int(tileNum)/2)+1):
-						renderWidthTileNum += 1
-					else:
-						renderWidthTileNum = 1
-						renderHeightTileNum += 1
+	def __init__(self):
+		### Init the panel with a name
+		nukescripts.PythonPanel.__init__(self, "hQueue Nuke render submission panel")
+		### Gets the absolute file path for the currently open Nuke script, if nothing open then defaults to install directory
+		self.absoluteFilePath = os.path.abspath(nuke.value("root.name"))
+		### Get the filepath from self.absoluteFilePath and put it into a text box
+		self.filePath = nuke.String_Knob('filePath', 'File Path: ', self.absoluteFilePath)
+		self.addKnob(self.filePath)
+		### Create a button that will test the file path for an nuke script
+		self.filePathCheck = nuke.PyScript_Knob("filePathCheck", "Test the File Path", "")
+        self.addKnob(self.filePathCheck)
+        ### Create pathSuccessFlag flag that is hidden until the file path is verified
+		self.pathSuccessFlag = nuke.Text_Knob('pathSuccessFlag', '', '<span style="color:green">Connection Successful</span>')
+		self.pathSuccessFlag.setFlag(nuke.STARTLINE)
+        self.pathSuccessFlag.setVisible(False)
+        self.addKnob(self.pathSuccessFlag)
+		### Setup a text box for the server address to be input into
+		self.serverAddress = nuke.String_Knob('serverAddress', 'Server Address: ')
+		self.addKnob(self.serverAddress)
+		### Setup a button to test the server address which will reveal the Connection Successful text
+		self.addressTest = nuke.PyScript_Knob("addressTest", "Test the server address", "")
+		self.addKnob(self.addressTest)
+		### Create addressSuccessFlag flag that is hidden until the server is successfully pinged
+		self.addressSuccessFlag = nuke.Text_Knob('addressSuccessFlag', '', '<span style="color:green">Connection Successful</span>')
+		self.addressSuccessFlag.setFlag(nuke.STARTLINE)
+        self.addressSuccessFlag.setVisible(False)
+        self.addKnob(self.addressSuccessFlag)
+		### Setup the get client list button, which will use hqrop functions
+		self.clientGet = nuke.PyScript_Knob("clientGet", "Get client list", "")
+		self.addKnob(self.clientGet)
+		### Setup the get client groups button, which will use hqrop functions
+		self.clientGroupGet = nuke.PyScript_Knob("clientGroupGet", "Get client groups", "")
+		self.addKnob(self.clientGroupGet)
+		### Setup a save client selection button, this hides the client list and itself
+		self.clientSelect = nuke.PyScript_Knob("clientSelect", "Save client selection", "")
+		self.clientSelect.setVisible(False)
+		self.addKnob(self.clientSelect)
+		### Setup a multiline client list that appears when clientGet is run
+		self.clientList = nuke.Multiline_Eval_String_Knob('clientList', 'Client List: ')
+		self.clientList.setFlag(nuke.STARTLINE)
+		self.clientList.setVisible(False)
+		self.addKnob(self.clientList)
+		### Setup a frame range with the default frame range of the scene
+		self.fRange = nuke.String_Knob('fRange', 'Track Range', '%s-%s' % (nuke.root().firstFrame(), nuke.root().lastFrame()))
+		self.addKnob(self.fRange)
+		
+		### Set the minimum size of the python panel
+		self.setMinimumSize(500, 600)
+
+	def knobChanged(self, knob):
+		### When you press a button run the command attached to that button
+		self.response = ""
+		### Figure out which knob was changed
+		if knob is self.filePathCheck:
+			### Get a response from the function of the button that was pressed
+			self.response = self.serverRop.expandHQROOT(self.filePath.value(), self.serverAddress.value())
+			print(self.response)
+			### See if the file path has $HQROOT in it
+			if "$HQROOT" in self.filePath.value():
+				### Clean the file path before checking it exists
+				self.cleanFilePath = self.filePath.value().replace("$HQROOT", self.response)
+				print(self.cleanFilePath)
+				if os.path.isfile(self.cleanFilePath):
+					### Set the value of pathSuccessFlag to green text Connection Successful 
+					self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
 				else:
-					frameNum += 1
-					renderTileNum = 1
-					renderWidthTileNum = 1
-					renderHeightTileNum = 1
+					### Set the value of pathSuccessFlag to green text Connection failed
+					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
+				### Set the address success text flag to visible
+				self.pathSuccessFlag.setVisible(True)
 			else:
-				renderStart += renderRange
-				renderEnd += renderRange
-				renderTileNum = 1
-				renderWidthTileNum = 1
-				renderHeightTileNum = 1
-
-			jobNum += 1
-	else:
-		#This checks if the frame range for the render command is below the final frame
-		while int(renderStart) <= int(frameEnd):
-
-			#This checks what program is rendering then compiles the command for the clients to run
-			if program == "nuke":
-				programline = waitRandom + " " + "&&" + " " + "C: && cd C:\Program Files\Nuke9.0v6 && Nuke9.0 -ix "
-				programExt = ".nk"
-				command = programline + "-F " + str(renderStart) + "-" + str(frameEnd) + "x" + str(computers) + " " + fileLoc + file + programExt
-			elif program == "maya":
-				programline = waitRandom + " " + "&&" + " " + "C: && set path=%PATH%;C:\Program Files\Autodesk\Maya2015\\bin; && render "
-				programExt = ".mb"
-				renderLength = "-s " + str(renderStart) + " " + "-e " + str(renderEnd) + " " + "-b " + str(renderRange)  + " "
-				if "mentalRay" in renderer:
-					rendererSettings = "-mr:rt" + " " + str(renderThreads) + " " + "-mr:v 5" + " "
-				elif "arnold" in renderer:
-					rendererSettings = "-r arnold "
+				### Check whether file exists
+				if os.path.isfile(self.filePath.value()):
+					### Set the value of pathSuccessFlag to green text Connection Successful 
+					self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
 				else:
-					renderSettings = ""
-				command = programline + renderSettings + "-proj " + fileLocation + " " + fileLoc + file + programExt
+					### Set the value of pathSuccessFlag to green text Connection failed
+					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
+		elif knob is self.addressTest:
+			### Get a response from the function of the button that was pressed
+			self.response = self.serverRop.doesHQServerExists(self.serverAddress.value())
+			### If there is a response do thing
+			if self.response == True:
+				### Set the value of addressSuccessFlag to green text Connection Successful 
+				self.addressSuccessFlag.setValue('<span style="color:green">Connection Successful</span>')
 			else:
-				print "Error: incorrect program"
+				### Set the value of addressSuccessFlag to green text Connection failed
+				self.addressSuccessFlag.setValue('<span style="color:red">Connection failed</span>')
+			### Set the address success text flag to visible
+			self.addressSuccessFlag.setVisible(True)
+		elif knob is self.clientGet:
+			### Get a response from the function of the button that was pressed
+			self.response = self.serverRop.getClients(self.serverAddress.value())
+			### If there is a response do thing
+			if self.response:
+				### reveal the client list and the client select button
+				self.clientList.setVisible(True)
+				self.clientSelect.setVisible(True)
+				### Generate a interrum string for future use
+				self.clientGetInterrum = ""
+				### For loop to extract the computer names into a string with newlines
+				for x in range(len(self.response)):
+					self.clientGetInterrum+=str(self.response[x]+"\n")
+				### set the value of clientList to the interrum string generated from the array for loop and remove the last newline for neatness
+				self.clientList.setValue(self.clientGetInterrum[:-1])
+		elif knob is self.clientGroupGet:
+			### Get a response from the function of the button that was pressed
+			self.response = self.serverRop.getClientGroups(self.serverAddress.value())
+			### If there is a response do thing
+			if self.response:
+				### reveal the client list and the client select button
+				self.clientList.setVisible(True)
+				self.clientSelect.setVisible(True)
+				### Generate a interrum string for future use
+				self.clientGetGroupInterrum = ""
+				### For loop to extract the computer names into a string with newlines
+				for x in self.response:
+					self.clientGetGroupInterrum+=str(x["name"]+"\n")
+				### set the value of clientList to the interrum string generated from the array for loop and remove the last newline for neatness
+				self.clientList.setValue(self.clientGetGroupInterrum[:-1])
+		elif knob is self.clientSelect:
+			### Hide the client selection button and the client list
+			self.clientSelect.setVisible(False)
+			self.clientList.setVisible(False)
+			self.clientSelectInterrum = self.clientList.value().replace("\n", " ")
 
-			#This is where the HQueue job is compiled
-			job_spec = {
-				"name" : file + " " + str(renderStart) +  "x" + str(renderRange) + "-" + str(frameEnd),
-				"command": command,
-				"tags": [ "single" ],
-				"maxHosts": 1,
-				"minHosts": 1,
-				"submittedBy": user,
-				"conditions": [
-					{ "type" : "client", "name":groupType, "op":groupOp, "value":group },
-				]
-			}
+### Run to open a window in Maya
+class mayaWindow(object):
+		
+	### Create a window in the maya gui
+	def __init__(self):
+		print("Not currently supported")
+		sys.exit
 
-			#Calling the function to submit a job
-			submitJob(job_spec, jobNum)
+class nativeWindow(object):
+		
+	### Create a window in the native gui
+	def __init__(self):
+		print("Not currently supported")
+		sys.exit
 
-			#This adds a value of 1 to render sequentially 
-			renderStart += int(computers)
-			
-			jobNum += 1
+########################################################################################################################################################################################################
+############################################ Main code
+########################################################################################################################################################################################################
+
+### Run the programCheck class method
+guiProgram = programCheck()
+
+### Not sure if I want to just call guiProgram.gui().showModal() or assign it to a variable then call that. Will go with the assign variable for now
+### Attempt to initiate the current window
+#guiProgram.gui().showModal()
+currentWindow = guiProgram.gui()
+currentWindow.showModal()
