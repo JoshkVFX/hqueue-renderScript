@@ -123,7 +123,7 @@ class hqRop(object):
 			if hou.ch("hq_email_on_priority_change"):
 				email_reasons.append("priority change")
 
-		parms["emailReasons"] = email_reasons
+			parms["emailReasons"] = email_reasons
 		else:
 			parms["emailTo"] = ""
 			# An empty list for emailReasons means no email will be sent
