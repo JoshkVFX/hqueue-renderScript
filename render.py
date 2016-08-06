@@ -39,17 +39,17 @@ class hqRop(object):
 		else:
 			self.submit_function(self.parms)
 
-	def getBaseParameters():
+	def getBaseParameters(hq_job_name, ):
 		"""Return a dictionary of the base parameters used by all HQueue ROPs."""
 		parms = {
-			"name" : hou.ch("hq_job_name").strip(),
+			"name" : hq_job_name
 			"assign_to" : hou.parm("hq_assign_to").evalAsString(),
 			"clients": hou.ch("hq_clients").strip(),
 			"client_groups" : hou.ch("hq_client_groups").strip(),
 			"dirs_to_create": getDirectoriesToCreate(hou.pwd(), expand=False),
 			"environment" : getEnvVariablesToSet(hou.pwd()),
 			"hfs": getUnexpandedStringParmVal(hou.parm("hq_hfs")),
-			"hq_server": hou.ch("hq_server").strip(),
+			"hq_server": hq_server
 			"open_browser": hou.ch("hq_openbrowser"),
 			"priority": hou.ch("hq_priority"),
 			"hip_action": hou.ch("hq_hip_action"),
@@ -61,34 +61,7 @@ class hqRop(object):
 		addSubmittedByParm(parms)
 
 		# Get the .hip file path.
-		if parms["hip_action"] == "use_current_hip":
-		    parms["hip_file"] = hou.hipFile.path()
-		elif parms["hip_action"] == "use_target_hip":
-		    parms["hip_file"] = getUnexpandedStringParmVal(hou.parm("hq_hip"))
-		elif parms["hip_action"] == "copy_to_shared_folder": 
-			# Get the target project directory from the project path parameter.
-			# We need to resolve $HQROOT if it exists in the parameter value.
-			# To do that, we temporarily set $HQROOT, evaluate the parameter,
-			# and then unset $HQROOT.
-			old_hq_root = hou.hscript("echo $HQROOT")[0].strip()
-			hq_root = expandHQROOT("$HQROOT", parms["hq_server"])
-			hou.hscript("set HQROOT=%s" % hq_root)
-			target_dir = hou.parm("hq_project_path").eval().strip()
-			if old_hq_root != "":
-				hou.hscript("set HQROOT=%s" % old_hq_root)
-			else:
-				hou.hscript("set -u HQROOT")
-			if target_dir[-1] != "/":
-				target_dir = target_dir + "/"
-
-			# Set the target .hip file path.
-			parms["hip_file"] = target_dir + os.path.basename(hou.hipFile.name())
-
-			# When copying to the shared folder,
-			# we always create a new .hip file.
-			parms["hip_file"] = _getNewHipFilePath(parms["hip_file"])
-		else:
-			pass
+	    parms["hip_file"] = hou.hipFile.path()
 
 		# Setup email parameters
 		if hou.ch("hq_will_email"):
@@ -611,6 +584,7 @@ class nukeWindow(nukescripts.PythonPanel):
 				if os.path.isfile(self.response):
 					### Set the value of pathSuccessFlag to green text Connection Successful 
 					self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
+					
 				else:
 					### Set the value of pathSuccessFlag to green text Connection failed
 					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
@@ -623,6 +597,7 @@ class nukeWindow(nukescripts.PythonPanel):
 				if os.path.isfile(self.filePath.value()):
 					### Set the value of pathSuccessFlag to green text Connection Successful 
 					self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
+					### 
 				else:
 					### Set the value of pathSuccessFlag to green text Connection failed
 					self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
@@ -664,6 +639,10 @@ class nukeWindow(nukescripts.PythonPanel):
 					self.clientGetInterrum+=str(self.response[x]+"\n")
 				### set the value of clientList to the interrum string generated from the array for loop and remove the last newline for neatness
 				self.clientList.setValue(self.clientGetInterrum[:-1])
+			else:
+				### Just reveal the empty lists
+				self.clientList.setVisible(True)
+				self.clientSelect.setVisible(True)
 		elif knob is self.clientGroupGet:
 			### Get a response from the function of the button that was pressed
 			self.response = self.serverRop.getClientGroups(self.serverAddress.value())
@@ -679,6 +658,10 @@ class nukeWindow(nukescripts.PythonPanel):
 					self.clientGetGroupInterrum+=str(x["name"]+"\n")
 				### set the value of clientList to the interrum string generated from the array for loop and remove the last newline for neatness
 				self.clientList.setValue(self.clientGetGroupInterrum[:-1])
+			else:
+				### Just reveal the empty lists
+				self.clientList.setVisible(True)
+				self.clientSelect.setVisible(True)
 		elif knob is self.clientSelect:
 			### Hide the client selection button and the client list
 			self.clientSelect.setVisible(False)
