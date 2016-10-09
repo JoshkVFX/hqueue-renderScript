@@ -205,6 +205,87 @@ def getJobCommands(hq_cmds, cmd_key, script=None):
     return commands
 
 
+
+def buildContainingJobSpec(job_name, hq_cmds, parms, child_job,
+                           apply_conditions_to_children=True):
+    """Return a job spec that submits the child job and waits for it.
+
+    The job containing the child job will not run any command.
+    """
+    job = {
+        "name": job_name,
+        "priority": child_job["priority"],
+        "environment": {"HQCOMMANDS": hutil.json.utf8Dumps(hq_cmds)},
+        "command": "",
+        "children": [child_job],
+        "emailTo": parms["emailTo"],
+        "emailReasons": parms["emailReasons"],
+    }
+
+    if "submittedBy" in parms:
+        job["submittedBy"] = parms["submittedBy"]
+
+    # Add job assignment conditions if any.
+    conditions = {"clients": "host", "client_groups": "hostgroup"}
+    for cond_type in conditions.keys():
+        job_cond_keyword = conditions[cond_type]
+        if parms["assign_to"] == cond_type:
+            job[job_cond_keyword] = parms[cond_type]
+            if apply_conditions_to_children:
+                for child_job in job["children"]:
+                    child_job[job_cond_keyword] = parms[cond_type]
+
+    return job
+
+
+def sendJob(hq_server, main_job, open_browser, report_submitted_job_id):
+    """Send the given job to the HQ server.
+
+    If the ui is available, either display the HQ web interface or display the
+    id of the submitted job depending on the value of `open_browser` and
+    'report_submitted_job_id'.
+    """
+    import hou
+    s = _connectToHQServer(hq_server)
+    if s is None:
+        return False
+
+    # We do this here as we need a server connection
+    _setupEmailReasons(s, main_job)
+
+    # If we're running as an HQueue job, make that job our parent job.
+    try:
+        ids = s.newjob(main_job, os.environ.get("JOBID"))
+    except Exception, e:
+        displayError("Could not submit job to '" + hq_server + "'.", e)
+        return False
+
+    # Don't open a browser window or try to display a popup message if we're
+    # running from Houdini Batch.
+    if not hou.isUIAvailable():
+        return True
+
+    jobId = ids[0]
+    if not open_browser and report_submitted_job_id:
+        buttonindex = hou.ui.displayMessage("Your job has been submitted (Job %i)." % jobId,
+                                            buttons=("Open HQueue", "Ok"), default_choice=1)
+
+        if buttonindex == 0:
+            open_browser = True
+
+    if open_browser:
+        url = "%(hq_server)s" % locals()
+        webbrowser.open(url)
+
+    return True
+
+#def submitJob(job_spec, jobNum):
+#    #This sends the HQueue Job to the HQueue Server to run your render
+#    job_ids = hq_server.newjob(job_spec)
+#    print "JobNum", jobNum, "submitted"
+#    print "Job" + " " + str(jobNum) + "/" + str(computers) + " " + "successfully submitted.\n"
+
+
 #################################################################################################################################################################################################
 
 # Run to open a window in Nuke
