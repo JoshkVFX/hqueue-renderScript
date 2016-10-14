@@ -7,8 +7,12 @@ import sys
 import xmlrpclib
 import getpass
 import io
+import json
 import nuke
 import nukescripts
+
+configLocation = os.path.join(os.environ['HOME'], ".hQueueConfig.dat")
+defaultServerAddress = 'localhost:5000'
 
 # This chunk of code is lifted from hqrop.py and rewritten as neccessary #######################################################################
 def expandHQROOT(path, hq_server):
@@ -21,7 +25,6 @@ def expandHQROOT(path, hq_server):
 
     expanded_path = path.replace("$HQROOT", hq_root)
     return expanded_path
-
 
 def getHQROOT(hq_server):
     """Query the HQueue server and return the mount point path
@@ -145,7 +148,7 @@ def getBaseParameters(name, assigned_to, clientList, clientGroupList, installDir
 
     addSubmittedByParm(parms)
 
-    print parms
+    return parms
 
 def addSubmittedByParm(parms):
     """Adds who submits the job to the base parameters."""
@@ -154,72 +157,19 @@ def addSubmittedByParm(parms):
     except (ImportError, KeyError):
         pass
 
-def getJobCommands(hq_cmds, cmd_key, script=None):
-    """Return platform-specific job commands defined by `cmd_key` and `script`.
-
-    Return a dictionary where the keys are the supported platforms
-    (i.e. linux, windows, macosx) and the values are the shell commands to be
-    executed for the job.  `cmd_key` is a key into the `hq_cmds` dictionary and
-    should be either "hythonComands", "pythonCommands" or "mantraCommands".
-
-    The optional `script` argument indicates whether the job should
-    execute a script file.  If `script` is None, then the job should run
-    the commands from hq_cmds[cmd_key] as-is.
-    """
-    linux_cmd_key = cmd_key + "Linux"
-    win_cmd_key = cmd_key + "Windows"
-    macosx_cmd_key = cmd_key + "Macosx"
-
-    # Get Linux commands.  Default to platform-independent commands
-    # if Linux commands do not exist.
-    linux_cmds = hq_cmds[linux_cmd_key] if hq_cmds.has_key(linux_cmd_key) \
-        else hq_cmds[cmd_key]
-
-    # Get Windows commands.  Default to platform-independent commands
-    # if Windows commands do no exist.
-    win_cmds = hq_cmds[win_cmd_key] if hq_cmds.has_key(win_cmd_key) \
-        else hq_cmds[cmd_key]
-
-    # Get MacOSX commands.  Default to platform-independent commands
-    # if MacOSX commands do no exist.
-    macosx_cmds = hq_cmds[macosx_cmd_key] if hq_cmds.has_key(macosx_cmd_key) \
-        else hq_cmds[cmd_key]
-
-    if script is not None:
-        # Get the HQueue scripts directory.
-        linux_hq_scripts_dir = hqScriptsDirectory()
-        macosx_hq_scripts_dir = hqScriptsDirectory()
-        win_hq_scripts_dir = hutil.file.convertToWinPath(linux_hq_scripts_dir,
-                                                         var_notation="!")
-
-        linux_cmds = "%s %s/%s" % (linux_cmds, linux_hq_scripts_dir, script)
-        macosx_cmds = "%s %s/%s" % (macosx_cmds, macosx_hq_scripts_dir, script)
-        win_cmds = "%s \"%s\\%s\"" % (win_cmds, win_hq_scripts_dir, script)
-
-    commands = {
-        "linux": linux_cmds,
-        "windows": win_cmds,
-        "macosx": macosx_cmds
-    }
-
-    return commands
-
-
-
-def buildContainingJobSpec(job_name, hq_cmds, parms, child_job,
+def buildContainingJobSpec(job_name, parms, child_jobs, child_job,
                            apply_conditions_to_children=True):
     """Return a job spec that submits the child job and waits for it.
-
     The job containing the child job will not run any command.
     """
     job = {
         "name": job_name,
-        "priority": child_job["priority"],
-        "environment": {"HQCOMMANDS": hutil.json.utf8Dumps(hq_cmds)},
+        "priority": parms['priority'],
+#        "environment": {"HQCOMMANDS": hutil.json.utf8Dumps(hq_cmds)},
         "command": "",
-        "children": [child_job],
-        "emailTo": parms["emailTo"],
-        "emailReasons": parms["emailReasons"],
+        "children": child_jobs,
+#        "emailTo": parms["emailTo"],
+#        "emailReasons": parms["emailReasons"],
     }
 
     if "submittedBy" in parms:
@@ -237,54 +187,80 @@ def buildContainingJobSpec(job_name, hq_cmds, parms, child_job,
 
     return job
 
+def buildOSCommands(HFS, startFrame, endFrame, fileName):
+    commands = {
+        # Example: nuke.exe -F 1-100 -x myscript.nk
+        "linux": HFS+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName,
+        "windows": HFS+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName,
+        "macosx": HFS+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName,
+    }
 
-def sendJob(hq_server, main_job, open_browser, report_submitted_job_id):
-    """Send the given job to the HQ server.
+    return commands
 
-    If the ui is available, either display the HQ web interface or display the
-    id of the submitted job depending on the value of `open_browser` and
-    'report_submitted_job_id'.
-    """
-    import hou
-    s = _connectToHQServer(hq_server)
+def buildChildJobs(jobName, OSCommands, priority):
+    job_spec = {
+        "name": jobName,
+        "command": OSCommands,
+        "priority": priority,
+        "tags": '',
+#        "maxHosts": 1,
+#        "minHosts": 1,
+        "command": OSCommands,
+    }
+    return job_spec
+
+def sendJob(hq_server, main_job):
+    s = hQServerConnect(hq_server)
     if s is None:
         return False
 
     # We do this here as we need a server connection
-    _setupEmailReasons(s, main_job)
+    #_setupEmailReasons(s, main_job)
 
     # If we're running as an HQueue job, make that job our parent job.
     try:
-        ids = s.newjob(main_job, os.environ.get("JOBID"))
+        print main_job
+        ids = s.newjob(main_job)
     except Exception, e:
-        displayError("Could not submit job to '" + hq_server + "'.", e)
+        print "Could not submit job:", main_job['name'], "to", hq_server
         return False
 
-    # Don't open a browser window or try to display a popup message if we're
-    # running from Houdini Batch.
-    if not hou.isUIAvailable():
-        return True
+#    jobId = ids[0]
+    return ids
 
-    jobId = ids[0]
-    if not open_browser and report_submitted_job_id:
-        buttonindex = hou.ui.displayMessage("Your job has been submitted (Job %i)." % jobId,
-                                            buttons=("Open HQueue", "Ok"), default_choice=1)
+def getFrameWord(frames):
+    if len(frames) == 1:
+        return "Frame"
+    else:
+        return "Frames"
 
-        if buttonindex == 0:
-            open_browser = True
-
-    if open_browser:
-        url = "%(hq_server)s" % locals()
-        webbrowser.open(url)
-
-    return True
-
-#def submitJob(job_spec, jobNum):
-#    #This sends the HQueue Job to the HQueue Server to run your render
-#    job_ids = hq_server.newjob(job_spec)
-#    print "JobNum", jobNum, "submitted"
-#    print "Job" + " " + str(jobNum) + "/" + str(computers) + " " + "successfully submitted.\n"
-
+def submitTestJob():
+    OSCommands = {
+        "linux": "echo Linux!",
+        "windows": "echo Windows!",
+        "macosx": "echo Mac!"
+    }
+    # Setup test job for testing submissions
+    job_spec = {
+        "name": "Test Job 1",
+        "command": OSCommands,
+        "tags": '',
+#        "maxHosts": 1,
+#        "minHosts": 1,
+    }
+    child_job = job_spec
+    job_spec = {
+        "name": "Test1",
+        "priority": 5,
+        "environment": "",
+        "command": "",
+        "children": [child_job],
+#        "emailTo": parms["emailTo"],
+#        "emailReasons": parms["emailReasons"],
+    }
+    s = hQServerConnect("localhost:5000")
+    jobId = s.newjob(job_spec)
+    print jobId
 
 #################################################################################################################################################################################################
 
@@ -296,7 +272,7 @@ class nukeWindow(nukescripts.PythonPanel):
         nukescripts.PythonPanel.__init__(self, "hQueue Nuke render submission panel")
 
         # Setup a text box for the job name
-        self.jobName = nuke.String_Knob('jobName', 'Job Name: ')
+        self.jobName = nuke.String_Knob('jobName', 'Job Name: ', '<default>')
         self.addKnob(self.jobName)
 
         # Gets the absolute file path for the currently open Nuke script, if nothing open then defaults to install directory
@@ -304,6 +280,7 @@ class nukeWindow(nukescripts.PythonPanel):
 
         # Setup a text box for the server address to be input into
         self.serverAddress = nuke.String_Knob('serverAddress', 'Server Address: ')
+        self.serverAddress.setValue(retrieveConfigCache())
         self.addKnob(self.serverAddress)
 
         # Setup a button to test the server address which will reveal the Connection Successful text
@@ -318,6 +295,7 @@ class nukeWindow(nukescripts.PythonPanel):
 
         # Get the filepath from self.absoluteFilePath and put it into a text box
         self.filePath = nuke.String_Knob('filePath', 'File Path: ', self.absoluteFilePath)
+        self.hqFilePath = self.filePath.value()
         self.addKnob(self.filePath)
 
         # Create a button that will test the file path for an nuke script
@@ -333,8 +311,6 @@ class nukeWindow(nukescripts.PythonPanel):
         # Setup a text box for the server address to be input into
         self.installDirectory = nuke.String_Knob('installDirectory', 'Nuke Install Directory: ')
         self.installDirectory.setValue('$HQROOT/nuke_distros/hfs.$HQCLIENTARCH')
-#        if nuke.EXE_PATH:
-#            self.installDirectory.setValue(nuke.EXE_PATH)
         self.addKnob(self.installDirectory)
 
         # Setup a button to test the server address which will reveal the Connection Successful text
@@ -344,6 +320,7 @@ class nukeWindow(nukescripts.PythonPanel):
         # Setup the Client selection box as a drop down menu
         self.priorityLevels = ['1 (Lowest)', '2', '3', '4', '5 (Medium)', '6', '7', '8', '9', '10 (Highest)']
         self.priority = nuke.Enumeration_Knob('priority', 'Priority: ', self.priorityLevels)
+        self.priority.setValue(self.priorityLevels[4])
         self.addKnob(self.priority)
 
         # Setup the Client selection box as a drop down menu
@@ -391,6 +368,8 @@ class nukeWindow(nukescripts.PythonPanel):
 
             # If there is a response do thing
             if self.response == True:
+                # Write out the server address to a a hidden file
+                writeConfigCache(self.serverAddress.value())
                 # Set the value of addressSuccessFlag to green text Connection Successful
                 self.addressSuccessFlag.setValue('<span style="color:green">Connection Successful</span>')
             else:
@@ -467,7 +446,26 @@ class nukeWindow(nukescripts.PythonPanel):
 
         elif knob is self.submitJob:
             self.finaliseClientList()
-            getBaseParameters(self.jobName.value(), self.assign_to.value(), self.clientFullList, self.clientGroupFullList, self.installDirectory.value(), self.serverAddress.value(), self.priority.value())
+            self.parms = getBaseParameters(self.jobNameSet(self.jobName.value(), self.hqFilePath), self.assigned_to, self.clientFullList, self.clientGroupFullList, \
+                                           self.installDirectory.value(), self.serverAddress.value(), self.priority.value())
+            self.childJobs = []
+            for i in range(int(self.fRange.value().split('-')[0]), int(self.fRange.value().split('-')[1])+1):
+                self.childJobs.append(buildChildJobs("Frame Range_"+str(i)+"-"+str(i), buildOSCommands(self.parms['hfs'], i, i, self.hqFilePath), self.parms['priority']))
+            try:
+                self.mainJob = buildContainingJobSpec(self.parms['name'], self.parms, self.childJobs, self.childJobs[0])
+            except:
+                raise ValueError("Frame range is invalid")
+            self.response = sendJob(self.parms['hq_server'], self.mainJob)
+            if self.response:
+                print "Successful"
+            else:
+                print "Failed"
+
+    def jobNameSet(self, jobName, FilePath):
+        if jobName == "<default>":
+            return "Render -> NK: "+FilePath
+        else:
+            return jobName
 
     def finaliseClientList(self):
         if self.assign_to.value() == "Any Client":
@@ -521,6 +519,19 @@ class clientSelectionPanel(nukescripts.PythonPanel):
             print knob
             print "KNOB ^^^"
             return self.clientInterrumList
+
+def retrieveConfigCache():
+    if os.path.isfile(configLocation):
+        with open(configLocation, 'r') as f:
+            config = json.load(f)
+        return config['Server Address']
+    else:
+        return defaultServerAddress
+
+def writeConfigCache(serverAddress):
+    config = {'Server Address': serverAddress}
+    with open(configLocation, 'w') as f:
+        json.dump(config, f)
 
 #class nukeAdvancedWindow(nukescripts.PythonPanel):
 #    def __init__(self):
