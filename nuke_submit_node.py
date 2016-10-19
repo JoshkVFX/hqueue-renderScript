@@ -19,11 +19,15 @@ def expandHQROOT(path, hq_server):
     """Return the given file path with instances of $HQROOT expanded
     out to the mount point for the HQueue shared folder root."""
     # Get the HQueue root path.
-    hq_root = getHQROOT(hq_server)
+    hq_root = getHQROOT(hq_server)[0]
     if hq_root is None:
         return path
 
-    expanded_path = path.replace("$HQROOT", hq_root)
+    expanded_path = {
+        'windows': path.replace("$HQROOT", hq_root['windows']),
+        'linux': path.replace("$HQROOT", hq_root['linux']),
+        'macosx': path.replace("$HQROOT", hq_root['macosx'])
+    }
     return expanded_path
 
 def getHQROOT(hq_server):
@@ -32,13 +36,13 @@ def getHQROOT(hq_server):
     Return None if the path cannot be retrieved from the server.
     """
     # Identify this machine's platform.
-    platform = sys.platform
-    if platform.startswith("win"):
-        platform = "windows"
-    elif platform.startswith("linux"):
-        platform = "linux"
-    elif platform.startswith("darwin"):
-        platform = "macosx"
+    OSplatform = sys.platform
+    if OSplatform.startswith("win"):
+        OSplatform = "windows"
+    elif OSplatform.startswith("linux"):
+        OSplatform = "linux"
+    elif OSplatform.startswith("darwin"):
+        OSplatform = "macosx"
 
     # Connect to the HQueue server.
     s = hQServerConnect(hq_server)
@@ -46,13 +50,17 @@ def getHQROOT(hq_server):
         return None
 
     try:
-        # Get the HQ root.
-        hq_root = s.getHQRoot(platform)
+        # Get the HQ root for all platforms.
+        hq_root = {
+            'windows': s.getHQRoot('windows'),
+            'linux': s.getHQRoot('linux'),
+            'macosx': s.getHQRoot('macosx')
+        }
     except:
         print("Could not retrieve $HQROOT from '" + hq_server + "'.")
         return None
 
-    return hq_root
+    return [hq_root, OSplatform]
 
 def hqServerProxySetup(hq_server):
     """Sets up a xmlrpclib server proxy to the given HQ server."""
@@ -190,9 +198,9 @@ def buildContainingJobSpec(job_name, parms, child_jobs, child_job,
 def buildOSCommands(HFS, startFrame, endFrame, fileName):
     commands = {
         # Example: nuke.exe -F 1-100 -x myscript.nk
-        "linux": HFS+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName,
-        "windows": HFS+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName,
-        "macosx": HFS+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName,
+        "linux": HFS['linux']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['linux'],
+        "windows": HFS['windows']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['windows'],
+        "macosx": HFS['macosx']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['macosx'],
     }
 
     return commands
@@ -219,7 +227,6 @@ def sendJob(hq_server, main_job):
 
     # If we're running as an HQueue job, make that job our parent job.
     try:
-        print main_job
         ids = s.newjob(main_job)
     except Exception, e:
         print "Could not submit job:", main_job['name'], "to", hq_server
@@ -234,33 +241,33 @@ def getFrameWord(frames):
     else:
         return "Frames"
 
-def submitTestJob():
-    OSCommands = {
-        "linux": "echo Linux!",
-        "windows": "echo Windows!",
-        "macosx": "echo Mac!"
-    }
-    # Setup test job for testing submissions
-    job_spec = {
-        "name": "Test Job 1",
-        "command": OSCommands,
-        "tags": '',
-#        "maxHosts": 1,
-#        "minHosts": 1,
-    }
-    child_job = job_spec
-    job_spec = {
-        "name": "Test1",
-        "priority": 5,
-        "environment": "",
-        "command": "",
-        "children": [child_job],
-#        "emailTo": parms["emailTo"],
-#        "emailReasons": parms["emailReasons"],
-    }
-    s = hQServerConnect("localhost:5000")
-    jobId = s.newjob(job_spec)
-    print jobId
+#def submitTestJob():
+#    OSCommands = {
+#        "linux": "echo Linux!",
+#        "windows": "echo Windows!",
+#        "macosx": "echo Mac!"
+#    }
+3    # Setup test job for testing submissions
+#    job_spec = {
+#        "name": "Test Job 1",
+#        "command": OSCommands,
+#        "tags": '',
+##        "maxHosts": 1,
+##        "minHosts": 1,
+#    }
+#    child_job = job_spec
+#    job_spec = {
+#        "name": "Test1",
+#        "priority": 5,
+#        "environment": "",
+#        "command": "",
+#        "children": [child_job],
+##        "emailTo": parms["emailTo"],
+##        "emailReasons": parms["emailReasons"],
+#    }
+#    s = hQServerConnect("localhost:5000")
+#    jobId = s.newjob(job_spec)
+#    print jobId
 
 #################################################################################################################################################################################################
 
@@ -295,7 +302,6 @@ class nukeWindow(nukescripts.PythonPanel):
 
         # Get the filepath from self.absoluteFilePath and put it into a text box
         self.filePath = nuke.String_Knob('filePath', 'File Path: ', self.absoluteFilePath)
-        self.hqFilePath = self.filePath.value()
         self.addKnob(self.filePath)
 
         # Create a button that will test the file path for an nuke script
@@ -310,7 +316,7 @@ class nukeWindow(nukescripts.PythonPanel):
 
         # Setup a text box for the server address to be input into
         self.installDirectory = nuke.String_Knob('installDirectory', 'Nuke Install Directory: ')
-        self.installDirectory.setValue('$HQROOT/nuke_distros/hfs.$HQCLIENTARCH')
+        self.installDirectory.setValue('$HQROOT/nuke_distros/$OS-Nuke'+str(nuke.NUKE_VERSION_STRING))
         self.addKnob(self.installDirectory)
 
         # Setup a button to test the server address which will reveal the Connection Successful text
@@ -325,7 +331,7 @@ class nukeWindow(nukescripts.PythonPanel):
 
         # Setup the Client selection box as a drop down menu
         self.clientSelectionTypes = {'Any Client': 'any', 'Selected Clients': 'clients', 'Clients from Listed Groups': 'client_groups'}
-        self.clientTypes = ['Any Client', 'Selected Clients', 'Clients from Listed Groups']
+        self.clientTypes = ['Any Client'] #, 'Selected Clients', 'Clients from Listed Groups']
         self.assign_to = nuke.Enumeration_Knob('nodes', 'Assigned nodes', self.clientTypes)
         self.addKnob(self.assign_to)
 
@@ -380,30 +386,42 @@ class nukeWindow(nukescripts.PythonPanel):
             self.addressSuccessFlag.setVisible(True)
 
         elif knob is self.filePathCheck:
+            self.sysHQInfo = getHQROOT(self.serverAddress.value())
+            self.hqRoot = self.sysHQInfo[0]
+            self.platform = self.sysHQInfo[1]
             # See if the file path has $HQROOT in it
             if "$HQROOT" in self.filePath.value():
-                # Get a response from the function of the button that was pressed
-                self.cleanPath = expandHQROOT(self.filePath.value(), self.serverAddress.value())
-                self.response = self.cleanPath
-                # Set the address success text flag to visible
-                self.pathSuccessFlag.setVisible(True)
-            elif getHQROOT(self.serverAddress.value()) in self.filePath.value():
-                self.hqroot = getHQROOT(self.serverAddress.value())
-                self.response = self.filePath.value().replace(self.hqroot, "$HQROOT")
+                # Set the platforms file value to the resolved path
+                self.fileResponse = {
+                    'windows': self.filePath.value().replace("$HQROOT", self.hqRoot['windows']),
+                    'macosx': self.filePath.value().replace("$HQROOT", self.hqRoot['macosx']),
+                    'linux': self.filePath.value().replace("$HQROOT", self.hqRoot['linux']),
+                    'hq': self.filePath.value()
+                }
+            elif self.hqRoot['linux'] in self.filePath.value() or self.hqRoot['macosx'] in self.filePath.value() or self.hqRoot['windows'] in self.filePath.value():
+                self.fileResponse = {
+                    'windows': self.filePath.value().replace(self.hqRoot[self.platform], self.hqRoot['windows']),
+                    'macosx': self.filePath.value().replace(self.hqRoot[self.platform], self.hqRoot['macosx']),
+                    'linux': self.filePath.value().replace(self.hqRoot[self.platform], self.hqRoot['linux']),
+                    'hq': self.filePath.value().replace(self.hqRoot['linux'], "$HQROOT").replace(self.hqRoot['macosx'], "$HQROOT").replace(self.hqRoot['windows'], "$HQROOT")
+                }
             else:
-                self.response = self.filePath.value()
+                self.fileResponse = {
+                    'windows': self.filePath.value(),
+                    'macosx': self.filePath.value(),
+                    'linux': self.filePath.value(),
+                    'hq': self.filePath.value()
+                }
+
             # Check if the file path exists
-            if os.path.isfile(self.response):
+            if os.path.isfile(self.fileResponse[self.platform]) or os.path.isfile(self.fileResponse['hq']):
                 # Set the value of pathSuccessFlag to green text File found
                 self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
             else:
                 # Set the value of pathSuccessFlag to green text File not found
                 self.pathSuccessFlag.setValue('<span style="color:red">File not found</span>')
-
             # Reveal the file result flag
             self.pathSuccessFlag.setVisible(True)
-            # Take the output of self.response and make it into a hqFilePath for submission to the server
-            self.hqFilePath = self.response
 
         elif knob is self.installDirectoryCurrent:
             self.installDirectory.setValue(nuke.EXE_PATH)
@@ -424,42 +442,59 @@ class nukeWindow(nukescripts.PythonPanel):
 
         elif knob is self.clientGet:
             # Get a response from the function of the button that was pressed
-            self.response = getClients(self.serverAddress.value())
+            self.clientResponse = getClients(self.serverAddress.value())
             self.cleanList = {}
 
-            for i in range(0, len(self.response)):
-                self.cleanList[self.response[i]] = self.response[i]
+            for i in range(0, len(self.clientResponse)):
+                self.cleanList[self.clientResponse[i]] = self.clientResponse[i]
 
             # Call the function for popping up the popup
-            self.clientInterrumList = self.popUpPanel()
+            self.clientInterrumList = self.popUpPanel(self.clientResponse)
 
         elif knob is self.clientGroupGet:
             # Get a response from the function of the button that was pressed
-            self.response = getClientGroups(self.serverAddress.value())
+            self.clientGroupResponse = getClientGroups(self.serverAddress.value())
             self.cleanList = {}
 
-            for i in range(0, len(self.response)):
-                self.cleanList[self.response[i]['name']] = self.response[i]
+            for i in range(0, len(self.clientGroupResponse)):
+                self.cleanList[self.clientGroupResponse[i]['name']] = self.clientGroupResponse[i]
 
             # Call the function for popping up the popup
-            self.clientInterrumList = self.popUpPanel()
+            self.clientInterrumList = self.popUpPanel(self.clientGroupResponse)
 
         elif knob is self.submitJob:
-            self.finaliseClientList()
-            self.parms = getBaseParameters(self.jobNameSet(self.jobName.value(), self.hqFilePath), self.assigned_to, self.clientFullList, self.clientGroupFullList, \
-                                           self.installDirectory.value(), self.serverAddress.value(), self.priority.value())
+            self.parms = self.finaliseJobSpecs()
             self.childJobs = []
             for i in range(int(self.fRange.value().split('-')[0]), int(self.fRange.value().split('-')[1])+1):
-                self.childJobs.append(buildChildJobs("Frame Range_"+str(i)+"-"+str(i), buildOSCommands(self.parms['hfs'], i, i, self.hqFilePath), self.parms['priority']))
+                self.childJobs.append(buildChildJobs("Frame Range_"+str(i)+"-"+str(i), buildOSCommands(self.parms['hfs'], i, i, self.fileResponse), self.parms['priority']))
             try:
                 self.mainJob = buildContainingJobSpec(self.parms['name'], self.parms, self.childJobs, self.childJobs[0])
             except:
                 raise ValueError("Frame range is invalid")
-            self.response = sendJob(self.parms['hq_server'], self.mainJob)
-            if self.response:
+            self.jobResponse = sendJob(self.parms['hq_server'], self.mainJob)
+            if self.jobResponse:
                 print "Successful"
             else:
                 print "Failed"
+
+    def finaliseJobSpecs(self):
+        self.finaliseClientList()
+        try:
+            if self.hqRoot:
+                pass
+        except:
+            self.knobChanged(self.filePathCheck)
+        return getBaseParameters(self.jobNameSet(self.jobName.value(), self.fileResponse['hq']), self.assigned_to, \
+                                 self.clientFullList, self.clientGroupFullList, \
+                                 self.cleanInstallEXE(self.installDirectory.value()), self.serverAddress.value(), self.priority.value())
+
+    def cleanInstallEXE(self, unusableDir):
+        usableDir = {
+            'linux': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['linux']).replace("$OS", self.platform), os.path.split(nuke.EXE_PATH)[1]),
+            'windows': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['windows']).replace("$OS", self.platform), os.path.split(nuke.EXE_PATH)[1]+'.exe'),
+            'macosx': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['macosx']).replace("$OS", self.platform), os.path.split(nuke.EXE_PATH)[1])
+        }
+        return usableDir
 
     def jobNameSet(self, jobName, FilePath):
         if jobName == "<default>":
@@ -492,9 +527,9 @@ class nukeWindow(nukescripts.PythonPanel):
                 self.clientGroupFullList.append(self.cleanList[i])
             print self.clientGroupFullList
 
-    def popUpPanel(self):
+    def popUpPanel(self, response):
         # If there is a response do thing
-        if self.response:
+        if response:
 
             # reveal the client list and the client select button
             self.clientSelectPopUp = clientSelectionPanel()
