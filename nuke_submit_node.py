@@ -165,7 +165,7 @@ def addSubmittedByParm(parms):
     except (ImportError, KeyError):
         pass
 
-def buildContainingJobSpec(job_name, parms, child_jobs, child_job,
+def buildContainingJobSpec(job_name, parms, child_jobs,
                            apply_conditions_to_children=True):
     """Return a job spec that submits the child job and waits for it.
     The job containing the child job will not run any command.
@@ -465,10 +465,10 @@ class nukeWindow(nukescripts.PythonPanel):
         elif knob is self.submitJob:
             self.parms = self.finaliseJobSpecs()
             self.childJobs = []
-            for i in range(int(self.fRange.value().split('-')[0]), int(self.fRange.value().split('-')[1])+1):
-                self.childJobs.append(buildChildJobs("Frame Range_"+str(i)+"-"+str(i), buildOSCommands(self.parms['hfs'], i, i, self.fileResponse), self.parms['priority']))
+            for i in range(int(self.fRange.value().split('-')[0]), int(self.fRange.value().split('-')[1])+1, 11):
+                self.childJobs.append(buildChildJobs("Frame Range_"+str(i)+"-"+str(i+10), buildOSCommands(self.parms['hfs'], i, i+10, self.fileResponse), self.parms['priority']))
             try:
-                self.mainJob = buildContainingJobSpec(self.parms['name'], self.parms, self.childJobs, self.childJobs[0])
+                self.mainJob = buildContainingJobSpec(self.parms['name'], self.parms, self.childJobs)
             except:
                 raise ValueError("Frame range is invalid")
             self.jobResponse = sendJob(self.parms['hq_server'], self.mainJob)
