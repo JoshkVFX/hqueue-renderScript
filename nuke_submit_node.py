@@ -8,6 +8,7 @@ import xmlrpclib
 import getpass
 import io
 import json
+import threading
 import nuke
 import nukescripts
 
@@ -188,6 +189,7 @@ def buildContainingJobSpec(job_name, parms, child_jobs,
     for cond_type in conditions.keys():
         job_cond_keyword = conditions[cond_type]
         if parms["assign_to"] == cond_type:
+#            job[job_cond_keyword] = 'josh-laptop'
             job[job_cond_keyword] = parms[cond_type]
             if apply_conditions_to_children:
                 for child_job in job["children"]:
@@ -213,7 +215,6 @@ def buildChildJobs(jobName, OSCommands, priority):
         "tags": '',
 #        "maxHosts": 1,
 #        "minHosts": 1,
-        "command": OSCommands,
     }
     return job_spec
 
@@ -331,7 +332,7 @@ class nukeWindow(nukescripts.PythonPanel):
 
         # Setup the Client selection box as a drop down menu
         self.clientSelectionTypes = {'Any Client': 'any', 'Selected Clients': 'clients', 'Clients from Listed Groups': 'client_groups'}
-        self.clientTypes = ['Any Client'] #, 'Selected Clients', 'Clients from Listed Groups']
+        self.clientTypes = ['Any Client', 'Selected Clients', 'Clients from Listed Groups']
         self.assign_to = nuke.Enumeration_Knob('nodes', 'Assigned nodes', self.clientTypes)
         self.addKnob(self.assign_to)
 
@@ -386,9 +387,7 @@ class nukeWindow(nukescripts.PythonPanel):
             self.addressSuccessFlag.setVisible(True)
 
         elif knob is self.filePathCheck:
-            self.sysHQInfo = getHQROOT(self.serverAddress.value())
-            self.hqRoot = self.sysHQInfo[0]
-            self.platform = self.sysHQInfo[1]
+            (self.hqRoot,self.platform) = getHQROOT(self.serverAddress.value())
             # See if the file path has $HQROOT in it
             if "$HQROOT" in self.filePath.value():
                 # Set the platforms file value to the resolved path
@@ -473,7 +472,7 @@ class nukeWindow(nukescripts.PythonPanel):
                 raise ValueError("Frame range is invalid")
             self.jobResponse = sendJob(self.parms['hq_server'], self.mainJob)
             if self.jobResponse:
-                print "Successful"
+                print "Job submission successful"
             else:
                 print "Failed"
 
@@ -490,9 +489,9 @@ class nukeWindow(nukescripts.PythonPanel):
 
     def cleanInstallEXE(self, unusableDir):
         usableDir = {
-            'linux': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['linux']).replace("$OS", self.platform), os.path.split(nuke.EXE_PATH)[1]),
-            'windows': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['windows']).replace("$OS", self.platform), os.path.split(nuke.EXE_PATH)[1]+'.exe'),
-            'macosx': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['macosx']).replace("$OS", self.platform), os.path.split(nuke.EXE_PATH)[1])
+            'linux': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['linux']).replace("$OS", 'linux'), os.path.split(nuke.EXE_PATH)[1]),
+            'windows': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['windows']).replace("$OS", 'windows'), os.path.split(nuke.EXE_PATH)[1]+'.exe'),
+            'macosx': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['macosx']).replace("$OS", 'macosx'), os.path.split(nuke.EXE_PATH)[1])
         }
         return usableDir
 
@@ -505,35 +504,36 @@ class nukeWindow(nukescripts.PythonPanel):
     def finaliseClientList(self):
         if self.assign_to.value() == "Any Client":
             self.assigned_to = self.clientSelectionTypes["Any Client"]
-            self.clientFullList = []
-            self.clientGroupFullList = []
+#            self.clientFullList = []
+#            self.clientGroupFullList = []
+            self.clientGroupFullList = ''
+            self.clientFullList = ''
         elif self.assign_to.value() == "Selected Clients":
             self.assigned_to = self.clientSelectionTypes["Selected Clients"]
             # Create a list using the clientList names to generate a list that can be sent with the job
-            self.clientFullList = []
-            self.clientGroupFullList = []
-            for i in self.clientList.value():
-                print i
-                print self.cleanList[i]
-                self.clientFullList.append(self.cleanList[i])
-            print self.clientFullList
+#            self.clientFullList = []
+#            self.clientGroupFullList = []
+#            for i in self.clientList.value().split(', '):
+#                self.clientFullList.append(self.cleanList[i])
+            self.clientGroupFullList = ''
+            self.clientFullList = self.clientList.value()
         elif self.assign_to.value() == "Clients from Listed Groups":
+            self.assigned_to = self.clientSelectionTypes["Clients from Listed Groups"]
             # Create a list using the clientList names to generate a list that can be sent with the job
-            self.clientFullList = []
-            self.clientGroupFullList = []
-            for i in self.clientList.value():
-                print i
-                print self.cleanList[i]
-                self.clientGroupFullList.append(self.cleanList[i])
-            print self.clientGroupFullList
+            self.clientGroupFullList = self.clientList.value()
+            self.clientFullList = ''
+#            self.clientFullList = []
+#            self.clientGroupFullList = []
+#            for i in self.clientList.value().split(', '):
+#                self.clientGroupFullList.append(self.cleanList[i])
 
     def popUpPanel(self, response):
         # If there is a response do thing
         if response:
-
             # reveal the client list and the client select button
             self.clientSelectPopUp = clientSelectionPanel()
             self.clientSelectPopUp.clientInterrumList.setValue(', '.join(self.cleanList.keys()))
+
             self.clientSelectPopUp.showModal()
 
             # set the value of clientList to the interrum string generated from the array for loop
@@ -547,13 +547,13 @@ class clientSelectionPanel(nukescripts.PythonPanel):
         self.clientInterrumList = nuke.Multiline_Eval_String_Knob('clientInterrumList', 'Client List: ')
         self.addKnob(self.clientInterrumList)
 
-    def knobChanged(self, knob):
-        if knob == "OK":
-            print "OK"
-        else:
-            print knob
-            print "KNOB ^^^"
-            return self.clientInterrumList
+#    def knobChanged(self, knob):
+#        if knob == "OK":
+#            print "OK"
+#        else:
+#            print knob
+#            print "KNOB ^^^"
+#            return self.clientInterrumList
 
 def retrieveConfigCache():
     if os.path.isfile(configLocation):
