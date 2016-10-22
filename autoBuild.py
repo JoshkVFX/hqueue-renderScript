@@ -17,6 +17,24 @@ elif OSplatform.startswith("darwin"):
     nukeDir = "/Applications"
     macExtraFolders = "Contents/MacOS/"
 
+if OSplatform == "windows":
+    pass
+elif OSplatform == "linux":
+    if os.getuid() == 0:
+        pass
+    else:
+        print "User is not root! Rerun with sudo!"
+        quit()
+elif OSplatform == "macosx":
+    if os.getuid() == 0:
+        pass
+    else:
+        print "User is not root! Rerun with sudo!"
+        quit()
+else:
+    print "Unsupported platform"
+    quit()
+
 folderStructure = {
     'user': os.path.join('plugins', 'user'),
     'python': os.path.join('plugins', os.path.join('user', 'python')),
@@ -30,14 +48,15 @@ fileStructure = {
 }
 
 pluginComponents = {
-    'init': ['', ''],
-    'menu': ['', ''],
+    'init': ['', 'https://raw.githubusercontent.com/SpaghettiBaguette/hqueue-renderScript/master/dependencies/init.py'],
+    'menu': ['', 'https://raw.githubusercontent.com/SpaghettiBaguette/hqueue-renderScript/master/dependencies/menu.py'],
     'nuke_submit_node': ['', 'https://raw.githubusercontent.com/SpaghettiBaguette/hqueue-renderScript/master/nuke_submit_node.py']
 }
 
-#for i in pluginComponents.keys():
-#    response = urllib2.urlopen(i[2])
-#    pluginComponents[i[1]] = response.read()
+for i in pluginComponents.keys():
+    print pluginComponents[i][1]
+    response = urllib2.urlopen(pluginComponents[i][1])
+    pluginComponents[i][0] = response.read()
 
 try:
     filePath = sys.argv[1]
@@ -49,28 +68,36 @@ nukeInstallDir = {}
 for i in os.listdir(filePath):
     if "Nuke" in i:
         nukeInstallDir[i] = os.path.join(filePath, i)
-        print "########## Nuke Install Dir ##########"
-        print nukeInstallDir[i]
-        print "######################################"
-
     else:
         pass
 
-for i in nukeInstallDir.values():
-    for x in folderStructure.values():
-        if os.path.isdir(os.path.join(i, x)):
-            print os.path.join(i, x), "exists!"
-            pass
-        else:
-            print os.path.join(i, x), "does not exist! Creating!"
+print "########## Nuke Install Dir ##########"
+print '\n'.join(nukeInstallDir)
+print "######################################"
 
-for i in nukeInstallDir.values():
-    for x in fileStructure.values():
-        if os.path.isfile(os.path.join(i, x)):
-            print os.path.join(i, x), "exists!"
-            pass
-        else:
-            print os.path.join(i, x), "does not exist! Creating!"
+def createFilesAndDir(pathValues, type):
+    for i in nukeInstallDir.keys():
+        for x in pathValues.keys():
+            if type == 'folder':
+                if os.path.isdir(os.path.join(nukeInstallDir[i], pathValues[x])):
+                    print os.path.join(nukeInstallDir[i], pathValues[x]), "exists!"
+                else:
+                    print os.path.join(nukeInstallDir[i], pathValues[x]), "does not exist! Creating!"
+                    try:
+                        os.makedirs(os.path.join(nukeInstallDir[i], pathValues[x]))
+                    except:
+                        print "You're not an admin!"
+            elif type == 'file':
+                if os.path.isfile(os.path.join(nukeInstallDir[i], pathValues[x])):
+                    print os.path.join(nukeInstallDir[i], pathValues[x]), "exists!"
+                    pass
+                else:
+                    print os.path.join(nukeInstallDir[i], pathValues[x]), "does not exist! Creating!"
+                    file = open(os.path.join(nukeInstallDir[i], pathValues[x]), 'w')
+                    file.write(pluginComponents[x][0])
+                    file.close()
+            else:
+                raise ValueError('File type unsupported')
 
-#if OSplatform == "linux":
-#    command = "cp -rvn," +  + str(filePath)
+createFilesAndDir(folderStructure, 'folder')
+createFilesAndDir(fileStructure, 'file')
