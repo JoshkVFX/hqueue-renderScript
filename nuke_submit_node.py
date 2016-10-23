@@ -233,7 +233,6 @@ def sendJob(hq_server, main_job):
         print "Could not submit job:", main_job['name'], "to", hq_server
         return False
 
-#    jobId = ids[0]
     return ids
 
 def getFrameWord(frames):
@@ -241,34 +240,6 @@ def getFrameWord(frames):
         return "Frame"
     else:
         return "Frames"
-
-#def submitTestJob():
-#    OSCommands = {
-#        "linux": "echo Linux!",
-#        "windows": "echo Windows!",
-#        "macosx": "echo Mac!"
-#    }
-3    # Setup test job for testing submissions
-#    job_spec = {
-#        "name": "Test Job 1",
-#        "command": OSCommands,
-#        "tags": '',
-##        "maxHosts": 1,
-##        "minHosts": 1,
-#    }
-#    child_job = job_spec
-#    job_spec = {
-#        "name": "Test1",
-#        "priority": 5,
-#        "environment": "",
-#        "command": "",
-#        "children": [child_job],
-##        "emailTo": parms["emailTo"],
-##        "emailReasons": parms["emailReasons"],
-#    }
-#    s = hQServerConnect("localhost:5000")
-#    jobId = s.newjob(job_spec)
-#    print jobId
 
 #################################################################################################################################################################################################
 
@@ -502,30 +473,18 @@ class nukeWindow(nukescripts.PythonPanel):
             return jobName
 
     def finaliseClientList(self):
+        self.clientGroupFullList = ''
+        self.clientFullList = ''
         if self.assign_to.value() == "Any Client":
             self.assigned_to = self.clientSelectionTypes["Any Client"]
-#            self.clientFullList = []
-#            self.clientGroupFullList = []
-            self.clientGroupFullList = ''
-            self.clientFullList = ''
         elif self.assign_to.value() == "Selected Clients":
             self.assigned_to = self.clientSelectionTypes["Selected Clients"]
-            # Create a list using the clientList names to generate a list that can be sent with the job
-#            self.clientFullList = []
-#            self.clientGroupFullList = []
-#            for i in self.clientList.value().split(', '):
-#                self.clientFullList.append(self.cleanList[i])
-            self.clientGroupFullList = ''
+            # Create a string using the clientList names that can be sent with the job
             self.clientFullList = self.clientList.value()
         elif self.assign_to.value() == "Clients from Listed Groups":
             self.assigned_to = self.clientSelectionTypes["Clients from Listed Groups"]
             # Create a list using the clientList names to generate a list that can be sent with the job
             self.clientGroupFullList = self.clientList.value()
-            self.clientFullList = ''
-#            self.clientFullList = []
-#            self.clientGroupFullList = []
-#            for i in self.clientList.value().split(', '):
-#                self.clientGroupFullList.append(self.cleanList[i])
 
     def popUpPanel(self, response):
         # If there is a response do thing
@@ -533,9 +492,7 @@ class nukeWindow(nukescripts.PythonPanel):
             # reveal the client list and the client select button
             self.clientSelectPopUp = clientSelectionPanel()
             self.clientSelectPopUp.clientInterrumList.setValue(', '.join(self.cleanList.keys()))
-
             self.clientSelectPopUp.showModal()
-
             # set the value of clientList to the interrum string generated from the array for loop
             self.clientList.setValue(self.clientSelectPopUp.clientInterrumList.value())
 
