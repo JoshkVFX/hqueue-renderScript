@@ -286,14 +286,19 @@ class nukeWindow(nukescripts.PythonPanel):
         self.pathSuccessFlag.setVisible(False)
         self.addKnob(self.pathSuccessFlag)
 
+        # Setup a button to test the server address which will reveal the Connection Successful text
+        self.installDirectoryChoicesKey = {'HQRoot install directory': '$HQROOT/nuke_distros/$OS-Nuke' + str(nuke.NUKE_VERSION_STRING), \
+                                        'Own install directory': nuke.EXE_PATH, \
+                                        'Custom install directory': ''}
+        self.installDirectoryChoices = ['HQRoot install directory', 'Own install directory', 'Custom install directory']
+        self.installDirectoryCurrent = nuke.Enumeration_Knob('installDirectoryCurrent', 'NFS Directory', self.installDirectoryChoices)
+#        self.installDirectoryCurrent = nuke.PyScript_Knob("installDirectoryCurrent", "Own install directory", "")
+        self.addKnob(self.installDirectoryCurrent)
+
         # Setup a text box for the server address to be input into
         self.installDirectory = nuke.String_Knob('installDirectory', 'Nuke Install Directory: ')
         self.installDirectory.setValue('$HQROOT/nuke_distros/$OS-Nuke'+str(nuke.NUKE_VERSION_STRING))
         self.addKnob(self.installDirectory)
-
-        # Setup a button to test the server address which will reveal the Connection Successful text
-        self.installDirectoryCurrent = nuke.PyScript_Knob("installDirectoryCurrent", "Own install directory", "")
-        self.addKnob(self.installDirectoryCurrent)
 
         # Setup the Client selection box as a drop down menu
         self.priorityLevels = ['1 (Lowest)', '2', '3', '4', '5 (Medium)', '6', '7', '8', '9', '10 (Highest)']
@@ -393,8 +398,11 @@ class nukeWindow(nukescripts.PythonPanel):
             # Reveal the file result flag
             self.pathSuccessFlag.setVisible(True)
 
+#        elif knob is self.installDirectoryCurrent:
+#            self.installDirectory.setValue(nuke.EXE_PATH)
+
         elif knob is self.installDirectoryCurrent:
-            self.installDirectory.setValue(nuke.EXE_PATH)
+            self.installDirectory.setValue(self.installDirectoryChoicesKey[self.installDirectoryCurrent.value()])
 
         elif knob is self.assign_to:
             if self.assign_to.value() == "Selected Clients":
