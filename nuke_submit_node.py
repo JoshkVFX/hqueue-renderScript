@@ -242,6 +242,22 @@ def getFrameWord(frames):
         return "Frames"
 
 #################################################################################################################################################################################################
+#### CONFIG FUNCTIONS
+
+def retrieveConfigCache():
+    if os.path.isfile(configLocation):
+        with open(configLocation, 'r') as f:
+            config = json.load(f)
+        return config['Server Address']
+    else:
+        return defaultServerAddress
+
+def writeConfigCache(serverAddress):
+    config = {'Server Address': serverAddress}
+    with open(configLocation, 'w') as f:
+        json.dump(config, f)
+
+#################################################################################################################################################################################################
 
 # Run to open a window in Nuke
 class nukeWindow(nukescripts.PythonPanel):
@@ -253,9 +269,6 @@ class nukeWindow(nukescripts.PythonPanel):
         # Setup a text box for the job name
         self.jobName = nuke.String_Knob('jobName', 'Job Name: ', '<default>')
         self.addKnob(self.jobName)
-
-        # Gets the absolute file path for the currently open Nuke script, if nothing open then defaults to install directory
-        self.absoluteFilePath = os.path.abspath(nuke.value("root.name"))
 
         # Setup a text box for the server address to be input into
         self.serverAddress = nuke.String_Knob('serverAddress', 'Server Address: ')
@@ -273,7 +286,7 @@ class nukeWindow(nukescripts.PythonPanel):
         self.addKnob(self.addressSuccessFlag)
 
         # Get the filepath from self.absoluteFilePath and put it into a text box
-        self.filePath = nuke.String_Knob('filePath', 'File Path: ', self.absoluteFilePath)
+        self.filePath = nuke.String_Knob('filePath', 'File Path: ', os.path.abspath(nuke.value("root.name")))
         self.addKnob(self.filePath)
 
         # Create a button that will test the file path for an nuke script
@@ -363,32 +376,8 @@ class nukeWindow(nukescripts.PythonPanel):
             self.addressSuccessFlag.setVisible(True)
 
         elif knob is self.filePathCheck:
-            (self.hqRoot,self.platform) = getHQROOT(self.serverAddress.value())
-            # See if the file path has $HQROOT in it
-            if "$HQROOT" in self.filePath.value():
-                # Set the platforms file value to the resolved path
-                self.fileResponse = {
-                    'windows': self.filePath.value().replace("$HQROOT", self.hqRoot['windows']),
-                    'macosx': self.filePath.value().replace("$HQROOT", self.hqRoot['macosx']),
-                    'linux': self.filePath.value().replace("$HQROOT", self.hqRoot['linux']),
-                    'hq': self.filePath.value()
-                }
-            elif self.hqRoot['linux'] in self.filePath.value() or self.hqRoot['macosx'] in self.filePath.value() or self.hqRoot['windows'] in self.filePath.value():
-                self.fileResponse = {
-                    'windows': self.filePath.value().replace(self.hqRoot[self.platform], self.hqRoot['windows']),
-                    'macosx': self.filePath.value().replace(self.hqRoot[self.platform], self.hqRoot['macosx']),
-                    'linux': self.filePath.value().replace(self.hqRoot[self.platform], self.hqRoot['linux']),
-                    'hq': self.filePath.value().replace(self.hqRoot['linux'], "$HQROOT").replace(self.hqRoot['macosx'], "$HQROOT").replace(self.hqRoot['windows'], "$HQROOT")
-                }
-            else:
-                self.fileResponse = {
-                    'windows': self.filePath.value(),
-                    'macosx': self.filePath.value(),
-                    'linux': self.filePath.value(),
-                    'hq': self.filePath.value()
-                }
+            self.hQRootFilePathCheck()# Check if the file path exists
 
-            # Check if the file path exists
             if os.path.isfile(self.fileResponse[self.platform]) or os.path.isfile(self.fileResponse['hq']):
                 # Set the value of pathSuccessFlag to green text File found
                 self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
@@ -455,6 +444,36 @@ class nukeWindow(nukescripts.PythonPanel):
             else:
                 print "Failed"
 
+    def hQRootFilePathCheck(self):
+        (self.hqRoot, self.platform) = getHQROOT(self.serverAddress.value())
+        self.filePathValue = self.filePath.value()
+        # See if the file path has $HQROOT in it
+        if "$HQROOT" in self.filePathValue:
+            # Set the platforms file value to the resolved path
+            self.fileResponse = {
+                'windows': self.filePathValue.replace("$HQROOT", self.hqRoot['windows']),
+                'macosx': self.filePathValue.replace("$HQROOT", self.hqRoot['macosx']),
+                'linux': self.filePathValue.replace("$HQROOT", self.hqRoot['linux']),
+                'hq': self.filePathValue
+            }
+        elif self.hqRoot['linux'] in self.filePathValue or self.hqRoot['macosx'] in self.filePathValue or \
+                        self.hqRoot['windows'] in self.filePathValue:
+            self.fileResponse = {
+                'windows': self.filePathValue.replace(self.hqRoot[self.platform], self.hqRoot['windows']),
+                'macosx': self.filePathValue.replace(self.hqRoot[self.platform], self.hqRoot['macosx']),
+                'linux': self.filePathValue.replace(self.hqRoot[self.platform], self.hqRoot['linux']),
+                'hq': self.filePathValue.replace(self.hqRoot['linux'], "$HQROOT").replace(self.hqRoot['macosx'],
+                                                                                             "$HQROOT").replace(
+                    self.hqRoot['windows'], "$HQROOT")
+            }
+        else:
+            self.fileResponse = {
+                'windows': self.filePathValue,
+                'macosx': self.filePathValue,
+                'linux': self.filePathValue,
+                'hq': self.filePathValue
+            }
+
     def finaliseJobSpecs(self):
         self.finaliseClientList()
         try:
@@ -519,19 +538,6 @@ class clientSelectionPanel(nukescripts.PythonPanel):
 #            print knob
 #            print "KNOB ^^^"
 #            return self.clientInterrumList
-
-def retrieveConfigCache():
-    if os.path.isfile(configLocation):
-        with open(configLocation, 'r') as f:
-            config = json.load(f)
-        return config['Server Address']
-    else:
-        return defaultServerAddress
-
-def writeConfigCache(serverAddress):
-    config = {'Server Address': serverAddress}
-    with open(configLocation, 'w') as f:
-        json.dump(config, f)
 
 #class nukeAdvancedWindow(nukescripts.PythonPanel):
 #    def __init__(self):
