@@ -9,6 +9,7 @@ import getpass
 import io
 import json
 import threading
+import posixpath
 import nuke
 import nukescripts
 
@@ -197,12 +198,12 @@ def buildContainingJobSpec(job_name, parms, child_jobs,
 
     return job
 
-def buildOSCommands(HFS, startFrame, endFrame, fileName):
+def buildOSCommands(NFS, startFrame, endFrame, fileName):
     commands = {
         # Example: nuke.exe -F 1-100 -x myscript.nk
-        "linux": HFS['linux']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['linux'],
-        "windows": HFS['windows']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['windows'],
-        "macosx": HFS['macosx']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['macosx'],
+        "linux": NFS['linux']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['linux'],
+        "windows": NFS['windows']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['windows'],
+        "macosx": NFS['macosx']+" -F "+str(startFrame)+"-"+str(endFrame)+" -x "+fileName['macosx'],
     }
 
     return commands
@@ -258,6 +259,24 @@ def writeConfigCache(serverAddress):
         json.dump(config, f)
 
 #################################################################################################################################################################################################
+#### SPLIT PATH FUNCTION
+
+def splitall(path):
+    allparts = []
+    while 1:
+        parts = os.path.split(path)
+        if parts[0] == path:  # sentinel for absolute paths
+            allparts.insert(0, parts[0])
+            break
+        elif parts[1] == path: # sentinel for relative paths
+            allparts.insert(0, parts[1])
+            break
+        else:
+            path = parts[0]
+            allparts.insert(0, parts[1])
+    return allparts
+
+#################################################################################################################################################################################################
 
 # Run to open a window in Nuke
 class nukeWindow(nukescripts.PythonPanel):
@@ -285,7 +304,7 @@ class nukeWindow(nukescripts.PythonPanel):
         self.addressSuccessFlag.setVisible(False)
         self.addKnob(self.addressSuccessFlag)
 
-        # Get the filepath from self.absoluteFilePath and put it into a text box
+        # Get the filepath from nuke and put it into a text box
         self.filePath = nuke.String_Knob('filePath', 'File Path: ', os.path.abspath(nuke.value("root.name")))
         self.addKnob(self.filePath)
 
@@ -300,12 +319,11 @@ class nukeWindow(nukescripts.PythonPanel):
         self.addKnob(self.pathSuccessFlag)
 
         # Setup a button to test the server address which will reveal the Connection Successful text
-        self.installDirectoryChoicesKey = {'HQRoot install directory': '$HQROOT/nuke_distros/$OS-Nuke' + str(nuke.NUKE_VERSION_STRING), \
-                                        'Own install directory': nuke.EXE_PATH, \
+        self.installDirectoryChoicesKey = {'HQRoot install directory': '$HQROOT/nuke_distros/$OS-Nuke' + str(nuke.NUKE_VERSION_STRING),
+                                        'Default install directory': os.path.split(nuke.EXE_PATH)[0],
                                         'Custom install directory': ''}
-        self.installDirectoryChoices = ['HQRoot install directory', 'Own install directory', 'Custom install directory']
-        self.installDirectoryCurrent = nuke.Enumeration_Knob('installDirectoryCurrent', 'NFS Directory', self.installDirectoryChoices)
-#        self.installDirectoryCurrent = nuke.PyScript_Knob("installDirectoryCurrent", "Own install directory", "")
+        self.installDirectoryChoices = ['HQRoot install directory', 'Default install directory', 'Custom install directory']
+        self.installDirectoryCurrent = nuke.Enumeration_Knob('installDirectoryCurrent', 'NFS Directory: ', self.installDirectoryChoices)
         self.addKnob(self.installDirectoryCurrent)
 
         # Setup a text box for the server address to be input into
@@ -322,7 +340,7 @@ class nukeWindow(nukescripts.PythonPanel):
         # Setup the Client selection box as a drop down menu
         self.clientSelectionTypes = {'Any Client': 'any', 'Selected Clients': 'clients', 'Clients from Listed Groups': 'client_groups'}
         self.clientTypes = ['Any Client', 'Selected Clients', 'Clients from Listed Groups']
-        self.assign_to = nuke.Enumeration_Knob('nodes', 'Assigned nodes', self.clientTypes)
+        self.assign_to = nuke.Enumeration_Knob('nodes', 'Assigned nodes: ', self.clientTypes)
         self.addKnob(self.assign_to)
 
         # Setup the box that will display the chosen clients
@@ -342,7 +360,7 @@ class nukeWindow(nukescripts.PythonPanel):
         self.addKnob(self.clientGroupGet)
 
         # Setup a frame range with the default frame range of the scene
-        self.fRange = nuke.String_Knob('fRange', 'Track Range', '%s-%s' % (nuke.root().firstFrame(), nuke.root().lastFrame()))
+        self.fRange = nuke.String_Knob('fRange', 'Track Range: ', '%s-%s' % (nuke.root().firstFrame(), nuke.root().lastFrame()))
         self.addKnob(self.fRange)
 
         # Setup a button to test the server address which will reveal the Connection Successful text
@@ -378,7 +396,7 @@ class nukeWindow(nukescripts.PythonPanel):
         elif knob is self.filePathCheck:
             self.hQRootFilePathCheck()# Check if the file path exists
 
-            if os.path.isfile(self.fileResponse[self.platform]) or os.path.isfile(self.fileResponse['hq']):
+            if os.path.isfile(self.fileResponse[self.platform].strip('"')) or os.path.isfile(self.fileResponse['hq'].strip('"')):
                 # Set the value of pathSuccessFlag to green text File found
                 self.pathSuccessFlag.setValue('<span style="color:green">File found</span>')
             else:
@@ -432,8 +450,8 @@ class nukeWindow(nukescripts.PythonPanel):
         elif knob is self.submitJob:
             self.parms = self.finaliseJobSpecs()
             self.childJobs = []
-            for i in range(int(self.fRange.value().split('-')[0]), int(self.fRange.value().split('-')[1])+1, 11):
-                self.childJobs.append(buildChildJobs("Frame Range_"+str(i)+"-"+str(i+10), buildOSCommands(self.parms['hfs'], i, i+10, self.fileResponse), self.parms['priority']))
+            for i in range(int(self.fRange.value().split('-')[0]), int(self.fRange.value().split('-')[1])+1, 10):
+                self.childJobs.append(buildChildJobs("Frame Range_"+str(i)+"-"+str(i+9), buildOSCommands(self.parms['hfs'], i, i+9, self.fileResponse), self.parms['priority']))
             try:
                 self.mainJob = buildContainingJobSpec(self.parms['name'], self.parms, self.childJobs)
             except:
@@ -451,27 +469,27 @@ class nukeWindow(nukescripts.PythonPanel):
         if "$HQROOT" in self.filePathValue:
             # Set the platforms file value to the resolved path
             self.fileResponse = {
-                'windows': self.filePathValue.replace("$HQROOT", self.hqRoot['windows']),
-                'macosx': self.filePathValue.replace("$HQROOT", self.hqRoot['macosx']),
-                'linux': self.filePathValue.replace("$HQROOT", self.hqRoot['linux']),
-                'hq': self.filePathValue
+                'windows': '"'+self.filePathValue.replace("$HQROOT", self.hqRoot['windows']).replace('/', '\\')+'"',
+                'macosx': '"'+self.filePathValue.replace("$HQROOT", self.hqRoot['macosx'])+'"',
+                'linux': '"'+self.filePathValue.replace("$HQROOT", self.hqRoot['linux'])+'"',
+                'hq': '"'+self.filePathValue+'"'
             }
         elif self.hqRoot['linux'] in self.filePathValue or self.hqRoot['macosx'] in self.filePathValue or \
-                        self.hqRoot['windows'] in self.filePathValue:
+                        self.hqRoot['windows'].replace('\\', '/') in self.filePathValue:
             self.fileResponse = {
-                'windows': self.filePathValue.replace(self.hqRoot[self.platform], self.hqRoot['windows']),
-                'macosx': self.filePathValue.replace(self.hqRoot[self.platform], self.hqRoot['macosx']),
-                'linux': self.filePathValue.replace(self.hqRoot[self.platform], self.hqRoot['linux']),
-                'hq': self.filePathValue.replace(self.hqRoot['linux'], "$HQROOT").replace(self.hqRoot['macosx'],
+                'windows': self.filePathValue.replace(self.hqRoot[self.platform], '"'+self.hqRoot['windows']).replace('/', '\\')+'"',
+                'macosx': self.filePathValue.replace(self.hqRoot[self.platform], '"'+self.hqRoot['macosx'])+'"',
+                'linux': self.filePathValue.replace(self.hqRoot[self.platform], '"'+self.hqRoot['linux'])+'"',
+                'hq': self.filePathValue.replace(self.hqRoot['linux'], '"'+"$HQROOT").replace(self.hqRoot['macosx'],
                                                                                              "$HQROOT").replace(
-                    self.hqRoot['windows'], "$HQROOT")
+                    self.hqRoot['windows'], "$HQROOT")+'"'
             }
         else:
             self.fileResponse = {
-                'windows': self.filePathValue,
-                'macosx': self.filePathValue,
-                'linux': self.filePathValue,
-                'hq': self.filePathValue
+                'windows': '"'+self.filePathValue.replace('/', '\\')+'"',
+                'macosx': '"'+self.filePathValue.replace('\\', '/')+'"',
+                'linux': '"'+self.filePathValue.replace('\\', '/')+'"',
+                'hq': '"'+self.filePathValue+'"'
             }
 
     def finaliseJobSpecs(self):
@@ -481,16 +499,26 @@ class nukeWindow(nukescripts.PythonPanel):
                 pass
         except:
             self.knobChanged(self.filePathCheck)
-        return getBaseParameters(self.jobNameSet(self.jobName.value(), self.fileResponse['hq']), self.assigned_to, \
-                                 self.clientFullList, self.clientGroupFullList, \
-                                 self.cleanInstallEXE(self.installDirectory.value()), self.serverAddress.value(), self.priority.value())
+        return getBaseParameters(self.jobNameSet(self.jobName.value(), self.fileResponse['hq']), self.assigned_to,
+                                 self.clientFullList, self.clientGroupFullList,
+                                 self.cleanInstallEXE(self.installDirectory.value()), self.serverAddress.value(),
+                                 self.priority.value())
 
     def cleanInstallEXE(self, unusableDir):
-        usableDir = {
-            'linux': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['linux']).replace("$OS", 'linux'), os.path.split(nuke.EXE_PATH)[1]),
-            'windows': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['windows']).replace("$OS", 'windows'), os.path.split(nuke.EXE_PATH)[1]+'.exe'),
-            'macosx': os.path.join(unusableDir.replace("$HQROOT", self.hqRoot['macosx']).replace("$OS", 'macosx'), os.path.split(nuke.EXE_PATH)[1])
-        }
+        if self.installDirectoryCurrent.value() == "HQRoot install directory":
+            usableDir = {
+            'linux': posixpath.join(unusableDir.replace("$HQROOT", '"'+self.hqRoot['linux']).replace("$OS", 'linux'), os.path.split(nuke.EXE_PATH)[1])+'"',
+            'windows': posixpath.join(unusableDir.replace("$HQROOT", '"'+self.hqRoot['windows']).replace("$OS", 'windows'), os.path.split(nuke.EXE_PATH)[1]+'.exe"').replace('/', '\\'),
+            'macosx': posixpath.join(unusableDir.replace("$HQROOT", '"'+self.hqRoot['macosx']).replace("$OS", 'macosx'), os.path.split(nuke.EXE_PATH)[1])+'"'
+            }
+        elif self.installDirectoryCurrent.value() == "Default install directory":
+            nukeDirName = 'Nuke' + str(nuke.NUKE_VERSION_STRING)
+            ### TODO: Figure out the Mac default install directory
+            usableDir = {
+                'linux': posixpath.join(posixpath.join('"/usr/local', nukeDirName), os.path.split(nuke.EXE_PATH)[1])+'"',
+                'windows': posixpath.join(posixpath.join('"C:\Program Files', nukeDirName), os.path.split(nuke.EXE_PATH)[1] + '.exe"').replace('/', '\\'),
+                'macosx': posixpath.join(posixpath.join('"No idea', nukeDirName), os.path.split(nuke.EXE_PATH)[1])+'"'
+            }
         return usableDir
 
     def jobNameSet(self, jobName, FilePath):
